@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% block title %}Upload timetable{% endblock %}
+{% block content %}
+<div class="twocol">
+<div class="panel">
+  <h2>Upload a class timetable (PDF)</h2>
+  <p class="help">Grid-style timetable: time slots across the top (e.g. 9:00-10:00), weekdays down the side, each cell = Subject / Teacher / (Room). Re-uploading the same class replaces its old timetable.</p>
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn">Upload &amp; build dashboard</button></form>
+</div>
+<div class="panel">
+  <h2>Result</h2>
+  {% if result %}
+    <p>Class: <b>{{ result.class_name|default:"—" }}</b> · Room: <b>{{ result.room|default:"from cells" }}</b></p>
+    {% for w in result.warnings %}<div class="msg error">{{ w }}</div>{% endfor %}
+    {% if preview %}<table class="t"><tr><th>Day</th><th>Time</th><th>Subject</th><th>Teacher</th><th>Room</th></tr>
+      {% for s in preview %}<tr><td>{{ s.day_name }}</td><td>{{ s.start_time|time:"H:i" }}–{{ s.end_time|time:"H:i" }}</td><td>{{ s.subject }}</td><td>{{ s.teacher }}</td><td>{{ s.room|default:result.room }}</td></tr>{% endfor %}</table>
+      <p><a class="btn" href="{% url 'dashboard' %}">Open dashboard</a></p>{% endif %}
+  {% else %}<p class="empty">The parsed timetable will be previewed here.</p>{% endif %}
+</div></div>
+{% endblock %}

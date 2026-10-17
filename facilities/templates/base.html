@@ -1,0 +1,22 @@
+{% load static %}<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}RoomRadar{% endblock %} · Live campus room finder</title>
+<link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head><body>
+<header class="top">
+  <a class="logo" href="{% url 'dashboard' %}">Room<span>Radar</span></a>
+  <nav>
+    <a href="{% url 'dashboard' %}">Live rooms</a>
+    {% if user.is_staff %}<a href="{% url 'upload' %}">Upload timetable</a><a href="{% url 'manage' %}">Changes &amp; emergencies</a><a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+  </nav>
+  {% if user.is_authenticated %}
+    <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn ghost small">Log out ({{ user.username }})</button></form>
+  {% else %}<a class="btn ghost small" href="{% url 'login' %}">Staff login</a>{% endif %}
+</header>
+<main>
+  {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
+  {% block content %}{% endblock %}
+</main>
+<script src="{% static 'js/live.js' %}"></script>
+</body></html>

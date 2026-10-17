@@ -1,0 +1,68 @@
+{% extends "base.html" %}{% block title %}Live rooms{% endblock %}
+{% block content %}
+<form class="filters" method="get">
+  <select name="dept" onchange="this.form.submit()"><option value="">All departments</option>
+    {% for d in departments %}<option value="{{ d.id }}" {% if sel_dept == d.id|stringformat:"s" %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select>
+  <select name="type" onchange="this.form.submit()"><option value="">Classrooms &amp; labs</option>
+    {% for v,l in room_types %}<option value="{{ v }}" {% if sel_type == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <a class="btn ghost small" href="?date={{ prev_day|date:'Y-m-d' }}&dept={{ sel_dept }}&type={{ sel_type }}">&larr;</a>
+  <input type="date" name="date" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()">
+  <a class="btn ghost small" href="?date={{ next_day|date:'Y-m-d' }}&dept={{ sel_dept }}&type={{ sel_type }}">&rarr;</a>
+  {% if not is_today %}<a class="btn ghost small" href="{% url 'dashboard' %}?dept={{ sel_dept }}&type={{ sel_type }}">Today</a>{% endif %}
+  <button type="button" id="freeOnly" class="btn ghost small">Show free rooms only</button>
+</form>
+
+<div id="live" data-today="{{ is_today|yesno:'1,0' }}">
+{% if is_today %}
+<div class="stats">
+  <div class="stat free"><b>{{ counts.free }}</b>free right now</div>
+  <div class="stat busy"><b>{{ counts.busy }}</b>in class</div>
+  <div class="stat changed"><b>{{ counts.changed }}</b>rescheduled class</div>
+  <div class="stat emergency"><b>{{ counts.emergency }}</b>reserved / emergency</div>
+</div>
+<div class="updated">{{ day|date:"l, j F Y" }} · updated {{ now|date:"H:i:s" }} · auto-refreshes every 30 s</div>
+{% else %}<div class="updated">Timetable for {{ day|date:"l, j F Y" }}</div>{% endif %}
+<div class="legend">
+  <span><i class="dot free"></i>Free</span><span><i class="dot busy"></i>Class running (teacher shown)</span>
+  <span><i class="dot changed"></i>Rescheduled / extra class</span><span><i class="dot emergency"></i>Emergency / event</span>
+  <span><i class="dot cancelled"></i>Class cancelled (room free)</span>
+</div>
+
+{% for dept, rows in sections %}
+<h2 class="dept">{{ dept.name }}</h2>
+{% if is_today %}
+<div class="cards">
+  {% for r in rows %}
+  <div class="card {{ r.status.state }}">
+    <span class="tag">{{ r.status.text }}</span>
+    <h3>{{ r.room.name }}</h3>
+    <div class="meta">{{ r.room.get_room_type_display }} · {{ r.room.capacity }} seats</div>
+    {% if r.status.state == "free" %}
+      <div class="meta">{% if r.status.until %}Free until {{ r.status.until }}{% else %}Free for the rest of the day{% endif %}</div>
+    {% else %}
+      <div><b>{{ r.status.title }}</b></div>
+      {% if r.status.teacher %}<div class="meta">{{ r.status.teacher }}</div>{% endif %}
+      {% if r.status.class_name %}<div class="meta">Class {{ r.status.class_name }}</div>{% endif %}
+      <div class="meta">Until {{ r.status.until }}{% if r.status.note %} · {{ r.status.note }}{% endif %}</div>
+    {% endif %}
+  </div>{% endfor %}
+</div>
+{% endif %}
+<div class="grid"><div class="inner">
+  <div class="grow hrow"><div class="lab">Room</div><div class="hrs">{% for h in hours %}<div style="width:{{ h.width }}%">{{ h.label }}</div>{% endfor %}</div></div>
+  {% for r in rows %}
+  <div class="grow"><div class="lab">{{ r.room.name }}<small>{{ r.room.get_room_type_display }}</small></div>
+    <div class="track" style="--cols:{{ cols }}">
+      {% for b in r.blocks %}
+      <div class="blk {{ b.kind }}" style="left:{{ b.left }}%;width:{{ b.width }}%"
+           title="{{ b.label }} · {{ b.title }}{% if b.teacher %} · {{ b.teacher }}{% endif %}{% if b.class_name %} · {{ b.class_name }}{% endif %}{% if b.note %} · {{ b.note }}{% endif %}">
+        <strong>{{ b.title }}</strong><small>{% if b.teacher %}{{ b.teacher }}{% else %}{{ b.label }}{% endif %}</small>
+      </div>{% endfor %}
+      {% if now_left != None %}<i class="nowline" style="left:{{ now_left }}%"></i>{% endif %}
+    </div></div>{% endfor %}
+</div></div>
+{% empty %}
+<div class="panel empty">No rooms yet. {% if user.is_staff %}<a href="{% url 'upload' %}">Upload a timetable PDF</a> to get started.{% else %}Ask a faculty member to upload the timetable.{% endif %}</div>
+{% endfor %}
+</div>
+{% endblock %}
