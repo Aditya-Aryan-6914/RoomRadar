@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import time
 
 from django.db import transaction
 from django.utils import timezone
@@ -7,8 +6,10 @@ from django.utils import timezone
 from .models import ClassSession, Department, Override, Room, TimetableUpload
 from .parser import parse_pdf
 
-FREE, BUSY, CHANGED, EMERGENCY = "free", "busy", "changed", "emergency"
-PRIORITY = {EMERGENCY: 3, CHANGED: 2, BUSY: 1}
+FREE, BUSY, CHANGED, EMERGENCY, BOOKED = "free", "busy", "changed", "emergency", "booked"
+PRIORITY = {EMERGENCY: 4, CHANGED: 3, BOOKED: 2, BUSY: 1}
+STATE_TEXT = {FREE: "Free", BUSY: "In class", CHANGED: "Extra class",
+              EMERGENCY: "Reserved", BOOKED: "Booked"}
 
 
 def mins(t: time) -> int:
@@ -19,38 +20,65 @@ def fmt(m: int) -> str:
     return f"{(m // 60) % 24:02d}:{m % 60:02d}"
 
 
+def local_now():
+    return timezone.localtime(timezone.now())
+
+
 # ---------------------------------------------------------------- import PDF
+def cleanup_empty(institute):
+    """Drop rooms/departments that no longer have any timetable data."""
+    # a room only exists while some timetable defines it (its bookings/changes go with it)
+    Room.objects.filter(department__institute=institute, sessions__isnull=True).delete()
+    Department.objects.filter(institute=institute, rooms__isnull=True).delete()
+
+
 @transaction.atomic
-def import_timetable(department_name, file_like, class_name="", room_name="", user=None,
-                     upload_file=None):
-    """Parse a PDF and replace that class's weekly sessions. Returns (ParseResult, created)."""
-    department, _ = Department.objects.get_or_create(name=department_name.strip())
-    result = parse_pdf(file_like, class_name=class_name.strip(), room_name=room_name.strip())
+def import_timetable(institute, file_like, default_department="", class_name="", room_name="",
+                     filename="", upload_file=None):
+    """Parse a PDF. Every division found becomes one class; its home room is created from the
+    PDF. Re-uploading a division replaces its old weekly timetable. Returns (result, groups)."""
+    result = parse_pdf(file_like, class_name=class_name.strip(), room_name=room_name.strip(),
+                       department=default_department.strip())
     if not result.sessions:
-        return result, 0
-    fallback_room = result.room or result.class_name or "Room 1"
-    upload = TimetableUpload.objects.create(
-        department=department, class_name=result.class_name, uploaded_by=user,
-        pdf=upload_file if upload_file is not None else "")
-    if result.class_name:   # re-upload replaces the old timetable of this class
-        ClassSession.objects.filter(room__department=department,
-                                    class_name=result.class_name).delete()
-    rooms = {}
-    created = 0
+        return result, []
+    missing = [s for s in result.sessions if not s["department"]]
+    if missing:
+        result.warnings.append("No department name found in the PDF - type it in the upload form.")
+        return result, []
+
+    upload = TimetableUpload.objects.create(institute=institute, filename=filename,
+                                            pdf=upload_file if upload_file is not None else "")
+    groups = {}
     for s in result.sessions:
-        rname = (s["room"] or fallback_room).strip()
-        if rname not in rooms:
-            rooms[rname], _ = Room.objects.get_or_create(
-                department=department, name=rname,
-                defaults={"room_type": Room.LAB if "lab" in rname.lower() else Room.CLASSROOM})
-        ClassSession.objects.create(
-            room=rooms[rname], class_name=result.class_name, subject=s["subject"],
-            teacher=s["teacher"], day=s["day"], start_time=s["start_time"],
-            end_time=s["end_time"], source=upload)
-        created += 1
-    upload.sessions_created = created
-    upload.save(update_fields=["sessions_created"])
-    return result, created
+        groups.setdefault((s["department"], s["class_name"]), []).append(s)
+
+    summary, total, out = [], 0, []
+    room_cache = {}
+    for (dname, cname), items in groups.items():
+        dept, _ = Department.objects.get_or_create(institute=institute, name=dname)
+        ClassSession.objects.filter(room__department=dept, class_name=cname).delete()
+        home = (items[0]["home_room"] or f"{cname} Room").strip()
+        rooms_used = set()
+        for s in items:
+            rname = (s["room"] or home).strip()
+            key = (dept.id, rname)
+            if key not in room_cache:
+                room_cache[key], _ = Room.objects.get_or_create(
+                    department=dept, name=rname,
+                    defaults={"room_type": Room.LAB if "lab" in rname.lower() else Room.CLASSROOM})
+            ClassSession.objects.create(
+                room=room_cache[key], class_name=cname, subject=s["subject"], teacher=s["teacher"],
+                day=s["day"], start_time=s["start_time"], end_time=s["end_time"], source=upload)
+            rooms_used.add(rname)
+        total += len(items)
+        out.append(dict(department=dname, class_name=cname, room=home, sessions=len(items),
+                        rooms=sorted(rooms_used)))
+        summary.append(f"{dname}: {cname}")
+    upload.sessions_created = total
+    upload.summary = "; ".join(summary)[:300]
+    upload.save(update_fields=["sessions_created", "summary"])
+    cleanup_empty(institute)
+    return result, out
 
 
 # ---------------------------------------------------------------- live status
@@ -84,14 +112,15 @@ def build_day(rooms, day):
                 class_name=s.class_name,
                 note=(cancelled[0].reason or "Class cancelled") if cancelled else ""))
         for o in o_by[r.id]:
-            if o.kind == Override.OCCUPY:
-                blocks.append(dict(kind=EMERGENCY, start=mins(o.start_time), end=mins(o.end_time),
-                                   title=o.title or "Room reserved", teacher=o.teacher,
-                                   class_name="", note=o.reason))
-            elif o.kind == Override.EXTRA:
-                blocks.append(dict(kind=CHANGED, start=mins(o.start_time), end=mins(o.end_time),
-                                   title=o.title or "Extra class", teacher=o.teacher,
-                                   class_name="", note=o.reason or "Rescheduled / extra class"))
+            kind = {Override.OCCUPY: EMERGENCY, Override.EXTRA: CHANGED,
+                    Override.BOOKING: BOOKED}.get(o.kind)
+            if not kind:
+                continue
+            default = {EMERGENCY: "Room reserved", CHANGED: "Extra class", BOOKED: "Group session"}[kind]
+            who = o.teacher + (f" ({o.get_role_display()})" if o.role else "")
+            blocks.append(dict(kind=kind, start=mins(o.start_time), end=mins(o.end_time),
+                               title=o.title or default, teacher=who.strip(), class_name="",
+                               note=o.reason, override_id=o.id))
         blocks.sort(key=lambda b: b["start"])
         for b in blocks:
             b["label"] = f"{fmt(b['start'])}–{fmt(b['end'])}"
@@ -100,7 +129,6 @@ def build_day(rooms, day):
 
 
 def status_at(blocks, minute):
-    """Status of one room at a minute-of-day, given its blocks for that date."""
     active = [b for b in blocks if b["kind"] in PRIORITY and b["start"] <= minute < b["end"]]
     if active:
         top = max(active, key=lambda b: PRIORITY[b["kind"]])
@@ -111,5 +139,9 @@ def status_at(blocks, minute):
     return dict(state=FREE, title="", teacher="", note="", until=until, class_name="")
 
 
-def local_now():
-    return timezone.localtime(timezone.now())
+def room_conflict(room, day, start, end):
+    """First block that makes `room` unavailable in [start, end) on `day`, or None."""
+    for b in build_day([room], day)[room.id]:
+        if b["kind"] in PRIORITY and _overlap(b["start"], b["end"], mins(start), mins(end)):
+            return b
+    return None

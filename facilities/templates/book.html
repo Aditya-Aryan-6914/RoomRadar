@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}Hold a session{% endblock %}
+{% block content %}
+<h1 class="ph">Hold a session in a free room</h1>
+<div class="two">
+<div class="panel">
+{% if not has_rooms %}<p class="muted">No rooms on this campus yet.</p>{% else %}
+<p class="muted">Need a room for a group discussion, project work or an extra class? Pick a free slot and it shows on the live dashboard instantly. Rooms that are busy are rejected.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Reserve room</button></form>{% endif %}
+</div>
+<div class="panel"><h2>Upcoming sessions</h2>
+{% for o in upcoming %}<div class="row"><div><b>{{ o.room.name }}</b> · {{ o.title }}<div class="muted small">{{ o.date|date:"D j M" }} {{ o.start_time|time:"H:i" }}–{{ o.end_time|time:"H:i" }} · {{ o.teacher }} ({{ o.get_role_display }})</div></div></div>
+{% empty %}<p class="muted">No self-booked sessions yet.</p>{% endfor %}</div>
+</div>
+{% endblock %}

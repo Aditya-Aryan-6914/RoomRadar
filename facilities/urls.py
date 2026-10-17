@@ -1,10 +1,16 @@
 from django.urls import path
+
 from . import views
 
 urlpatterns = [
-    path("", views.dashboard, name="dashboard"),
-    path("api/status/", views.api_status, name="api_status"),
-    path("upload/", views.upload, name="upload"),
-    path("manage/", views.manage, name="manage"),
-    path("manage/delete/<int:pk>/", views.delete_override, name="delete_override"),
+    path("", views.home, name="home"),
+    path("signup/", views.signup, name="signup"),
+    path("go/", views.my_campus, name="my_campus"),
+    path("c/<slug:slug>/", views.dashboard, name="dashboard"),
+    path("c/<slug:slug>/api/status/", views.api_status, name="api_status"),
+    path("c/<slug:slug>/book/", views.book, name="book"),
+    path("c/<slug:slug>/upload/", views.upload, name="upload"),
+    path("c/<slug:slug>/upload/<int:pk>/delete/", views.delete_upload, name="delete_upload"),
+    path("c/<slug:slug>/changes/", views.manage, name="manage"),
+    path("c/<slug:slug>/changes/<int:pk>/delete/", views.delete_override, name="delete_override"),
 ]

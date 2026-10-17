@@ -1,19 +1,23 @@
-{% extends "base.html" %}{% block title %}Upload timetable{% endblock %}
+{% extends "base.html" %}{% block title %}Timetables{% endblock %}
 {% block content %}
-<div class="twocol">
-<div class="panel">
-  <h2>Upload a class timetable (PDF)</h2>
-  <p class="help">Grid-style timetable: time slots across the top (e.g. 9:00-10:00), weekdays down the side, each cell = Subject / Teacher / (Room). Re-uploading the same class replaces its old timetable.</p>
-  <form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn">Upload &amp; build dashboard</button></form>
+<h1 class="ph">Timetables</h1>
+<div class="two">
+<div class="panel"><h2>Upload a timetable PDF</h2>
+  <form method="post" enctype="multipart/form-data" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Upload &amp; build dashboard</button></form>
+  <p class="muted small">A department PDF may contain several divisions (one table each). Uploading a division again replaces its old timetable.</p>
 </div>
-<div class="panel">
-  <h2>Result</h2>
-  {% if result %}
-    <p>Class: <b>{{ result.class_name|default:"—" }}</b> · Room: <b>{{ result.room|default:"from cells" }}</b></p>
-    {% for w in result.warnings %}<div class="msg error">{{ w }}</div>{% endfor %}
-    {% if preview %}<table class="t"><tr><th>Day</th><th>Time</th><th>Subject</th><th>Teacher</th><th>Room</th></tr>
-      {% for s in preview %}<tr><td>{{ s.day_name }}</td><td>{{ s.start_time|time:"H:i" }}–{{ s.end_time|time:"H:i" }}</td><td>{{ s.subject }}</td><td>{{ s.teacher }}</td><td>{{ s.room|default:result.room }}</td></tr>{% endfor %}</table>
-      <p><a class="btn" href="{% url 'dashboard' %}">Open dashboard</a></p>{% endif %}
-  {% else %}<p class="empty">The parsed timetable will be previewed here.</p>{% endif %}
+<div class="panel"><h2>Uploaded files</h2>
+  {% for u in uploads %}<div class="row"><div><b>{{ u.filename|default:"timetable" }}</b><div class="muted small">{{ u.uploaded_at|date:"j M, H:i" }} · {{ u.sessions_created }} slots · {{ u.summary }}</div></div>
+    <form method="post" action="{% url 'delete_upload' slug=inst.slug pk=u.pk %}" onsubmit="return confirm('Remove this timetable and its rooms from the dashboard?')">{% csrf_token %}<button class="btn ghost small danger">Remove</button></form></div>
+  {% empty %}<p class="muted">Nothing uploaded yet.</p>{% endfor %}
 </div></div>
+{% if result %}
+<div class="panel"><h2>Result</h2>
+  {% for w in result.warnings %}<div class="msg warning">{{ w }}</div>{% endfor %}
+  {% if groups %}<div class="chips">{% for g in groups %}<div class="chip"><b>{{ g.department }} · {{ g.class_name }}</b><span>Room: {{ g.room }} · {{ g.sessions }} slots{% if g.rooms|length > 1 %} · also {{ g.rooms|length|add:"-1" }} lab/other room(s){% endif %}</span></div>{% endfor %}</div>
+  <p><a class="btn" href="{% url 'dashboard' slug=inst.slug %}">Open dashboard</a></p>
+  <details><summary>Preview of parsed slots</summary><table class="tbl"><tr><th>Class</th><th>Day</th><th>Time</th><th>Subject</th><th>Teacher</th><th>Room</th></tr>
+  {% for s in preview %}<tr><td>{{ s.class_name }}</td><td>{{ s.day_name }}</td><td>{{ s.start_time|time:"H:i" }}–{{ s.end_time|time:"H:i" }}</td><td>{{ s.subject }}</td><td>{{ s.teacher }}</td><td>{{ s.room|default:s.home_room }}</td></tr>{% endfor %}</table></details>
+  {% endif %}
+</div>{% endif %}
 {% endblock %}

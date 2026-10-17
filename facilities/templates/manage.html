@@ -1,22 +1,16 @@
 {% extends "base.html" %}{% block title %}Changes &amp; emergencies{% endblock %}
 {% block content %}
-<div class="twocol">
-<div class="panel">
-  <h2>🚨 Emergency: occupy a room right now</h2>
-  <form method="post">{% csrf_token %}<input type="hidden" name="quick" value="1">{{ quick.as_p }}<button class="btn danger">Mark occupied now</button></form>
-</div>
-<div class="panel">
-  <h2>Schedule a change for a date</h2>
-  <p class="help"><b>Cancelled</b> frees the room. <b>Extra / rescheduled</b> adds a class (to move a class: cancel in the old room + add extra in the new room). <b>Emergency / event</b> blocks the room.</p>
-  <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn">Save change</button></form>
-</div></div>
-<div class="panel">
-  <h2>Upcoming changes</h2>
-  {% if upcoming %}<table class="t"><tr><th>Date</th><th>Time</th><th>Room</th><th>Type</th><th>Details</th><th></th></tr>
-  {% for o in upcoming %}<tr><td>{{ o.date|date:"D j M" }}</td><td>{{ o.start_time|time:"H:i" }}–{{ o.end_time|time:"H:i" }}</td>
-    <td>{{ o.room.name }} <small>({{ o.room.department }})</small></td><td>{{ o.get_kind_display|truncatechars:22 }}</td>
-    <td>{{ o.title }} {{ o.teacher }} {{ o.reason }}</td>
-    <td><form method="post" action="{% url 'delete_override' o.pk %}">{% csrf_token %}<button class="btn danger small">Remove</button></form></td></tr>{% endfor %}</table>
-  {% else %}<p class="empty">No changes scheduled.</p>{% endif %}
-</div>
+<h1 class="ph">Changes &amp; emergencies</h1>
+{% if not has_rooms %}<div class="panel"><p class="muted">Upload a timetable first, then rooms appear here.</p></div>{% else %}
+<div class="two">
+<div class="panel"><h2>Emergency: occupy a room now</h2>
+  <form method="post" class="form">{% csrf_token %}<input type="hidden" name="quick" value="1">{{ quick.as_div }}<button class="btn danger-btn">Block room now</button></form></div>
+<div class="panel"><h2>Schedule a change</h2>
+  <form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Save change</button></form></div>
+</div>{% endif %}
+<div class="panel"><h2>Upcoming changes &amp; bookings</h2>
+{% for o in upcoming %}<div class="row"><div><span class="tag {{ o.kind }}">{{ o.get_kind_display }}</span> <b>{{ o.room.name }}</b> · {{ o.date|date:"D j M" }} {{ o.start_time|time:"H:i" }}–{{ o.end_time|time:"H:i" }}
+  <div class="muted small">{{ o.title }}{% if o.teacher %} · {{ o.teacher }}{% endif %}{% if o.reason %} · {{ o.reason }}{% endif %}</div></div>
+  <form method="post" action="{% url 'delete_override' slug=inst.slug pk=o.pk %}">{% csrf_token %}<button class="btn ghost small danger">Remove</button></form></div>
+{% empty %}<p class="muted">Nothing scheduled.</p>{% endfor %}</div>
 {% endblock %}

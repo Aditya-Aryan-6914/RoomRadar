@@ -19,16 +19,45 @@ BREAK_RE = re.compile(r"\b(lunch|break|recess|interval)\b", re.I)
 TEACHER_RE = re.compile(r"^\(?\s*(dr|prof|mr|mrs|ms|er|sir|madam)\b\.?", re.I)
 ROOM_RE = re.compile(
     r"\b(?:room|rm|lab|lh|cr|hall)[\s.:#-]*[A-Za-z]*\d+[A-Za-z]?\b|\b[A-Z]{1,3}-\d{2,4}\b", re.I)
-PAGE_ROOM_RE = re.compile(r"(?:class\s*room|room)\s*(?:no\.?|number)?\s*[:\-]\s*([A-Za-z0-9\- ]{1,20})", re.I)
-PAGE_CLASS_RE = re.compile(r"(?:class|division|section|batch)\s*[:\-]\s*([A-Za-z0-9\-]{1,20})", re.I)
+PAGE_ROOM_RE = re.compile(r"(?:class\s*room|room)\s*(?:no\.?|number)?\s*[:\-]\s*([\w\-]+(?: [\w\-]+)?)", re.I)
+PAGE_CLASS_RE = re.compile(r"\bclass\s*[:\-]\s*([\w\-]{1,20})", re.I)
+PAGE_DIV_RE = re.compile(r"\b(?:division|div|section|sec)\s*[:\-]\s*([\w\-]{1,10})", re.I)
+TITLE_RE = re.compile(r"^(.*?)[\s\-–—:|,]*\b(?:time\s*-?\s*table|timetable)\b", re.I)
+DEPT_RE = re.compile(r"\bdepartment\s*(?:of)?\s*[:\-]?\s*([A-Za-z&,\- ]{3,60})", re.I)
 
 
 @dataclass
 class ParseResult:
-    sessions: list = field(default_factory=list)   # dicts
+    sessions: list = field(default_factory=list)   # dicts: department, class_name, room, subject, ...
     warnings: list = field(default_factory=list)
-    class_name: str = ""
-    room: str = ""
+
+
+def detect_context(text):
+    """Pull department / class (division) / room out of the text that sits above a timetable grid."""
+    out = {"department": "", "class_name": "", "room": ""}
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    for ln in lines:
+        m = DEPT_RE.search(ln)
+        if m:
+            out["department"] = re.sub(r"^(?:of)\s+", "", m.group(1).strip(), flags=re.I).strip(" -,")
+            break
+        m = TITLE_RE.match(ln)
+        if m and m.group(1).strip():
+            out["department"] = re.sub(r"^department\s*(?:of)?\s*", "", m.group(1).strip(), flags=re.I).strip(" -,")
+            break
+    flat = " ".join(lines)
+    m = PAGE_ROOM_RE.search(flat)
+    if m:
+        out["room"] = m.group(1).strip()
+    cls = PAGE_CLASS_RE.search(flat)
+    div = PAGE_DIV_RE.search(flat)
+    cls = cls.group(1).strip() if cls else ""
+    div = div.group(1).strip() if div else ""
+    if cls and div and div.lower() not in cls.lower():
+        out["class_name"] = f"{cls}-{div}"
+    else:
+        out["class_name"] = cls or div
+    return out
 
 
 def _hour(h, mer, is_end=False):
@@ -91,71 +120,86 @@ def _parse_cell(cell):
     return {"subject": subject, "teacher": teacher, "room": room}
 
 
-def parse_pdf(file_like, class_name="", room_name=""):
-    result = ParseResult(class_name=class_name, room=room_name)
+def _table_rows(table, ctx, raw, warnings):
+    header_idx, columns = None, {}
+    for i, row in enumerate(table):
+        found = {}
+        for j, cell in enumerate(row):
+            rng = parse_time_range(cell or "")
+            if rng:
+                found[j] = rng
+        if len(found) >= 2:
+            header_idx, columns = i, found
+            break
+    if header_idx is None:
+        warnings.append("A table without a time header row was skipped.")
+        return
+    for row in table[header_idx + 1:]:
+        day_txt = (row[0] or "").strip().lower()[:3]
+        if day_txt not in DAY_MAP:
+            continue
+        day = DAY_MAP[day_txt]
+        last = None
+        for j in sorted(columns):
+            if j >= len(row):
+                break
+            cell = row[j]
+            start, end = columns[j]
+            if cell is None:                       # merged with previous cell
+                if last is not None:
+                    last["end_time"] = end
+                continue
+            if not cell.strip():
+                last = None
+                continue
+            info = _parse_cell(cell)
+            if not info:
+                last = None
+                continue
+            last = {**info, **ctx, "day": day, "start_time": start, "end_time": end,
+                    "cell_room": info["room"]}
+            raw.append(last)
+
+
+def parse_pdf(file_like, class_name="", room_name="", department=""):
+    """Every grid table found in the PDF is one division/class. Department, class and home room
+    are read from the text above each grid; the form values are only fallbacks."""
+    result = ParseResult()
     raw = []
+    found_tables = 0
     with pdfplumber.open(file_like) as pdf:
-        page_text = "\n".join((p.extract_text() or "") for p in pdf.pages[:1])
-        if not result.room:
-            m = PAGE_ROOM_RE.search(page_text)
-            if m:
-                result.room = m.group(1).strip()
-        if not result.class_name:
-            m = PAGE_CLASS_RE.search(page_text)
-            if m:
-                result.class_name = m.group(1).strip()
-        tables = []
         for page in pdf.pages:
-            tables.extend(page.extract_tables())
-    if not tables:
+            tables = page.find_tables()
+            top = 0
+            for t in tables:
+                bbox_top = t.bbox[1]
+                text = ""
+                if bbox_top - top > 4:
+                    try:
+                        text = page.crop((0, top, page.width, bbox_top)).extract_text() or ""
+                    except Exception:
+                        text = ""
+                top = t.bbox[3]
+                found_tables += 1
+                det = detect_context(text)
+                ctx = {"department": det["department"] or department,
+                       "class_name": det["class_name"] or class_name,
+                       "home_room": det["room"] or room_name}
+                if not ctx["class_name"]:
+                    ctx["class_name"] = f"Division {found_tables}"
+                    result.warnings.append(
+                        f"Table {found_tables}: no 'Class:' / 'Division:' line found, named it '{ctx['class_name']}'.")
+                _table_rows(t.extract(), ctx, raw, result.warnings)
+    if not found_tables:
         result.warnings.append("No table found in the PDF. Use a PDF that has a grid-style timetable.")
         return result
 
-    for table in tables:
-        header_idx, columns = None, {}
-        for i, row in enumerate(table):
-            found = {}
-            for j, cell in enumerate(row):
-                rng = parse_time_range(cell or "")
-                if rng:
-                    found[j] = rng
-            if len(found) >= 2:
-                header_idx, columns = i, found
-                break
-        if header_idx is None:
-            result.warnings.append("A table without a time header row was skipped.")
-            continue
-        for row in table[header_idx + 1:]:
-            day_txt = (row[0] or "").strip().lower()[:3]
-            if day_txt not in DAY_MAP:
-                continue
-            day = DAY_MAP[day_txt]
-            last = None
-            for j in sorted(columns):
-                if j >= len(row):
-                    break
-                cell = row[j]
-                start, end = columns[j]
-                if cell is None:                       # merged with previous cell
-                    if last is not None:
-                        last["end_time"] = end
-                    continue
-                if not cell.strip():
-                    last = None
-                    continue
-                info = _parse_cell(cell)
-                if not info:
-                    last = None
-                    continue
-                last = {**info, "day": day, "start_time": start, "end_time": end}
-                raw.append(last)
-
-    # merge back-to-back identical periods (e.g. 2-hour lab printed twice)
-    raw.sort(key=lambda s: (s["day"], s["room"], s["subject"], s["start_time"]))
+    raw.sort(key=lambda s: (s["class_name"], s["day"], s["room"], s["subject"], s["start_time"]))
     merged = []
     for s in raw:
         p = merged[-1] if merged else None
-        if (p and p["day"] == s["day"] and p["subject"] == s["subject"] and p["room"] == s["room"]
+        if (p and p["class_name"] == s["class_name"] and p["day"] == s["day"]
+                and p["subject"] == s["subject"] and p["room"] == s["room"]
                 and p["teacher"] == s["teacher"] and p["end_time"] == s["start_time"]):
             p["end_time"] = s["end_time"]
         else:

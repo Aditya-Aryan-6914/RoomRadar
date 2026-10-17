@@ -1,7 +1,6 @@
-{% extends "base.html" %}{% block title %}Staff login{% endblock %}
+{% extends "base.html" %}{% block title %}Log in{% endblock %}
 {% block content %}
-<div class="panel" style="max-width:420px;margin:30px auto">
-  <h2>Staff / faculty login</h2>
-  <form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn">Log in</button></form>
-</div>
+<div class="panel narrow"><h2>Log in</h2><p class="muted">For institute accounts. Students do not need to log in.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Log in</button></form>
+<p class="muted">New campus? <a href="{% url 'signup' %}">Register it</a>.</p></div>
 {% endblock %}

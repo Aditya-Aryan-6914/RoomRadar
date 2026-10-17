@@ -39,6 +39,7 @@ TEMPLATES = [{
         "django.template.context_processors.request",
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
+        "facilities.context.campus",
     ]},
 }]
 
@@ -46,7 +47,9 @@ WSGI_APPLICATION = "roomradar.wsgi.application"
 
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 6}},
+]
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Kolkata"   # change to your campus time zone
 USE_I18N = True
@@ -62,6 +65,6 @@ MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "manage"
-LOGOUT_REDIRECT_URL = "dashboard"
+LOGIN_REDIRECT_URL = "my_campus"
+LOGOUT_REDIRECT_URL = "home"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
