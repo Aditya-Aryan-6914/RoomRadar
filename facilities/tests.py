@@ -164,3 +164,43 @@ class LlmJson(TestCase):
         subjects = {s["subject"] for c in data["classes"] for s in c["sessions"]}
         self.assertEqual(subjects, {"X"})
         self.assertEqual(data["extractor"], "llm:fake-small")
+
+
+class StudentLabLimit(TestCase):
+    def setUp(self):
+        from .models import Department, Room, StudentProfile
+        U = get_user_model()
+        owner = U.objects.create_user("owner", password="pw12345!")
+        self.inst = Institute.objects.create(name="Test Inst", slug="test-inst", owner=owner)
+        dept = Department.objects.create(institute=self.inst, name="CSE")
+        self.lab = Room.objects.create(department=dept, name="Lab 1", room_type=Room.LAB)
+        self.hall = Room.objects.create(department=dept, name="Hall 1", room_type=Room.CLASSROOM)
+        user = U.objects.create_user("stu", password="pw12345!")
+        StudentProfile.objects.create(user=user, institute=self.inst, full_name="Stu", prn="1")
+        self.student, self.owner = user, owner
+
+    def _form(self, room, start, end, role="student", user=None):
+        from datetime import date, timedelta
+        from .forms import BookingForm
+        data = dict(room=room.pk, role=role, teacher="Stu", title="Project",
+                    date=(date.today() + timedelta(days=30)).isoformat(),
+                    start_time=start, end_time=end)
+        return BookingForm(data, institute=self.inst, user=user or self.student)
+
+    def test_student_lab_over_two_hours_rejected(self):
+        f = self._form(self.lab, "10:00", "12:30")
+        self.assertFalse(f.is_valid())
+        self.assertIn("at most 2 hours", str(f.errors))
+
+    def test_student_lab_exactly_two_hours_ok(self):
+        self.assertTrue(self._form(self.lab, "10:00", "12:00").is_valid())
+
+    def test_student_cannot_bypass_by_picking_faculty(self):
+        self.assertFalse(self._form(self.lab, "10:00", "13:00", role="faculty").is_valid())
+
+    def test_student_classroom_not_limited(self):
+        self.assertTrue(self._form(self.hall, "10:00", "14:00").is_valid())
+
+    def test_faculty_lab_not_limited(self):
+        self.assertTrue(self._form(self.lab, "10:00", "14:00", role="faculty",
+                                   user=self.owner).is_valid())

@@ -11,6 +11,9 @@ from .models import Institute, Override, Room, StudentProfile
 
 User = get_user_model()
 
+# A student may hold a lab for at most this long in a single booking.
+MAX_STUDENT_LAB_MINUTES = 120
+
 
 class InstituteSignupForm(UserCreationForm):
     institute_name = forms.CharField(max_length=150, label="College / institute name")
@@ -158,8 +161,9 @@ class _TimeRangeMixin:
 
 
 class RoomChoiceForm(forms.Form):
-    def __init__(self, *a, institute=None, **kw):
+    def __init__(self, *a, institute=None, user=None, **kw):
         super().__init__(*a, **kw)
+        self.user = user
         qs = Room.objects.filter(department__institute=institute).select_related("department")
         self.fields["room"].queryset = qs
 
@@ -195,3 +199,19 @@ class BookingForm(_TimeRangeMixin, RoomChoiceForm):
         if d < date.today():
             raise forms.ValidationError("Pick today or a future date.")
         return d
+
+    def _is_student(self, role):
+        """Students are real student accounts, or anyone booking as a student."""
+        return role == "student" or hasattr(self.user, "student_profile")
+
+    def clean(self):
+        data = super().clean()
+        room, s, e = data.get("room"), data.get("start_time"), data.get("end_time")
+        if room and s and e and e > s and room.room_type == Room.LAB \
+                and self._is_student(data.get("role")):
+            minutes = (e.hour * 60 + e.minute) - (s.hour * 60 + s.minute)
+            if minutes > MAX_STUDENT_LAB_MINUTES:
+                raise forms.ValidationError(
+                    f"Students can book a lab for at most {MAX_STUDENT_LAB_MINUTES // 60} hours "
+                    f"at a time. You asked for {minutes // 60}h {minutes % 60:02d}m.")
+        return data

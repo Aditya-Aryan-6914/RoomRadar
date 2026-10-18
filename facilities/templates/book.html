@@ -4,7 +4,7 @@
 <div class="two">
 <div class="panel">
 {% if not has_rooms %}<p class="muted">No rooms on this campus yet.</p>{% else %}
-<p class="muted">Need a room for a group discussion, project work or an extra class? Pick a free slot and it shows on the live dashboard instantly. Rooms that are busy are rejected.</p>
+<p class="muted">Need a room for a group discussion, project work or an extra class? Pick a free slot and it shows on the live dashboard instantly. Rooms that are busy are rejected. Students can book a lab for up to 2 hours at a time.</p>
 <form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Reserve room</button></form>{% endif %}
 </div>
 <div class="panel"><h2>Upcoming sessions</h2>

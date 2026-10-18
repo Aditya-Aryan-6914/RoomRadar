@@ -315,7 +315,7 @@ def book(request, inst):
     profile = getattr(request.user, "student_profile", None)
     initial = {"date": now.date(), "start_time": now.time().replace(second=0, microsecond=0),
                "room": request.GET.get("room"), "teacher": profile.full_name if profile else ""}
-    form = BookingForm(request.POST or None, institute=inst, initial=initial)
+    form = BookingForm(request.POST or None, institute=inst, user=request.user, initial=initial)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         clash = room_conflict(d["room"], d["date"], d["start_time"], d["end_time"])
@@ -451,7 +451,7 @@ def edit_event(request, inst, pk):
     initial = dict(room=o.room_id, kind=o.kind, role=o.role or "student", date=o.date,
                    start_time=o.start_time, end_time=o.end_time, title=o.title,
                    teacher=o.teacher, reason=o.reason)
-    form = Form(request.POST or None, institute=inst, initial=initial)
+    form = Form(request.POST or None, institute=inst, user=request.user, initial=initial)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         clash = room_conflict(d["room"], d["date"], d["start_time"], d["end_time"],

@@ -9,7 +9,7 @@
 - **Institute → department drill-down**: pick an institute on the dashboard, see all its classrooms and labs, then pick a department to see its divisions, rooms, teachers and weekly slots.
 - **Institute switcher with password unlock**: browse another institute (view only) after entering its institute password.
 - **Live status** with "free until", Now cards and a day timeline, search, free-only filter, auto refresh.
-- **Hold a session**: members reserve a free room; clashes are blocked.
+- **Hold a session**: members reserve a free room; clashes are blocked. Students can hold a lab for at most 2 hours per booking.
 - **Changes & emergencies** for institutes: occupy a room, cancel or add a class.
 - **Students & access** page: change the institute password, view/remove students.
 - **Light / dark mode** toggle (next to Log out), remembered per browser.
