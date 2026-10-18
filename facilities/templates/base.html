@@ -2,34 +2,43 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}RoomRadar{% endblock %} · RoomRadar</title>
+<meta name="description" content="RoomRadar shows every free classroom and lab on your campus, live.">
+<script>(function(){try{var t=localStorage.getItem('rr-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){document.documentElement.setAttribute('data-theme','light')}})()</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="{% static 'css/style.css' %}">
 </head><body>
 <header class="top"><div class="wrap bar">
-  <a class="logo" href="{% url 'home' %}"><span class="pulse"></span><span>Room<b>Radar</b></span></a>
+  <a class="logo" href="{% url 'home' %}"><span class="logo-mark"><span class="pulse"></span></span><span>Room<b>Radar</b></span></a>
   <nav>
     {% if inst %}
-      <span class="campus">{{ inst.name }}</span>
       <a href="{% url 'dashboard' slug=inst.slug %}" class="{% if request.resolver_match.url_name == 'dashboard' %}on{% endif %}">Live rooms</a>
-      <a href="{% url 'book' slug=inst.slug %}" class="{% if request.resolver_match.url_name == 'book' %}on{% endif %}">Hold a session</a>
+      {% if is_member %}<a href="{% url 'book' slug=inst.slug %}" class="{% if request.resolver_match.url_name == 'book' %}on{% endif %}">Hold a session</a>{% endif %}
       {% if user.is_authenticated and inst.owner_id == user.id %}
         <a href="{% url 'upload' slug=inst.slug %}" class="{% if request.resolver_match.url_name == 'upload' %}on{% endif %}">Timetables</a>
         <a href="{% url 'manage' slug=inst.slug %}" class="{% if request.resolver_match.url_name == 'manage' %}on{% endif %}">Changes</a>
+        <a href="{% url 'access' slug=inst.slug %}" class="{% if request.resolver_match.url_name == 'access' %}on{% endif %}">Students &amp; access</a>
       {% endif %}
     {% else %}
-      <a href="{% url 'home' %}#how">How it works</a><a href="{% url 'home' %}#campuses">Campuses</a>
+      <a href="{% url 'home' %}#how">How it works</a><a href="{% url 'home' %}#features">Features</a><a href="{% url 'home' %}#campuses">Institutes</a>
     {% endif %}
   </nav>
   <div class="auth">
   {% if user.is_authenticated %}
-    {% if campus and not inst %}<a class="btn small" href="{% url 'dashboard' slug=campus.slug %}">My campus</a>{% endif %}
+    {% if my_inst and not inst %}<a class="btn small" href="{% url 'dashboard' slug=my_inst.slug %}">My dashboard</a>{% endif %}
     <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn ghost small">Log out</button></form>
-  {% else %}<a class="btn ghost small" href="{% url 'login' %}">Log in</a><a class="btn small" href="{% url 'signup' %}">Register campus</a>{% endif %}
+  {% else %}<a class="btn ghost small" href="{% url 'student_login' %}">Log in</a><a class="btn small" href="{% url 'signup' %}">Get started</a>{% endif %}
+    <button type="button" id="themeToggle" class="icon-btn" aria-label="Switch between light and dark mode" title="Switch light / dark mode">
+      <svg class="i-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
   </div>
 </div></header>
 <main class="wrap">
   {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
   {% block content %}{% endblock %}
 </main>
-<footer class="foot wrap">RoomRadar · Dynamic resource allocation for college facilities</footer>
+<footer class="foot"><div class="wrap foot-in"><span><b>RoomRadar</b> · Smart campus space management</span><span>Live classroom &amp; lab availability for your institute</span></div></footer>
+<script src="{% static 'js/theme.js' %}"></script>
 <script src="{% static 'js/live.js' %}"></script>
 </body></html>

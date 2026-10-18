@@ -12,7 +12,7 @@
   {% empty %}<p class="muted">Nothing uploaded yet.</p>{% endfor %}
 </div></div>
 {% if result %}
-<div class="panel"><h2>Result</h2>
+<div class="panel"><h2>Import result</h2>
   {% for w in result.warnings %}<div class="msg warning">{{ w }}</div>{% endfor %}
   {% if groups %}<div class="chips">{% for g in groups %}<div class="chip"><b>{{ g.department }} · {{ g.class_name }}</b><span>Room: {{ g.room }} · {{ g.sessions }} slots{% if g.rooms|length > 1 %} · also {{ g.rooms|length|add:"-1" }} lab/other room(s){% endif %}</span></div>{% endfor %}</div>
   <p><a class="btn" href="{% url 'dashboard' slug=inst.slug %}">Open dashboard</a></p>

@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}Students &amp; access{% endblock %}
+{% block content %}
+<h1 class="ph">Students &amp; access</h1>
+<p class="muted">Control who can join {{ inst.name }}.</p>
+{% if not has_password %}<div class="msg warning">No institute password is set yet. Set one below so students can join.</div>{% endif %}
+<div class="two">
+<div class="panel"><h2>Institute password</h2>
+<p class="muted small">Students need it to register. Other institutes' members need it to browse your rooms. Changing it does not log anyone out.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Update password</button></form></div>
+<div class="panel"><h2>Registered students <span class="count">{{ students|length }}</span></h2>
+{% for s in students %}<div class="row"><div><b>{{ s.full_name }}</b><div class="muted small">PRN / ID {{ s.prn }} · joined {{ s.created_at|date:"j M Y" }}</div></div>
+<form method="post" action="{% url 'remove_student' slug=inst.slug pk=s.pk %}" onsubmit="return confirm('Remove this student account?')">{% csrf_token %}<button class="btn ghost small danger">Remove</button></form></div>
+{% empty %}<p class="muted">No students have joined yet. Share your institute name and password with them.</p>{% endfor %}</div>
+</div>
+{% endblock %}

@@ -2,14 +2,20 @@ from datetime import date, timedelta
 from functools import wraps
 
 from django.contrib import messages
-from django.contrib.auth import login
+from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
+from django.db.models import Count
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .forms import BookingForm, InstituteSignupForm, OverrideForm, QuickOccupyForm, UploadForm
-from .models import Department, Institute, Override, Room, TimetableUpload
+from .forms import (BookingForm, InstitutePasswordForm, InstituteSignupForm, OverrideForm,
+                    QuickOccupyForm, StudentLoginForm, StudentSignupForm, UnlockForm, UploadForm)
+from .models import (ClassSession, Department, Institute, Override, Room, StudentProfile,
+                     TimetableUpload)
 from .services import (BOOKED, BUSY, CHANGED, EMERGENCY, FREE, STATE_TEXT, build_day,
                        cleanup_empty, fmt, import_timetable, local_now, mins, room_conflict,
                        status_at)
@@ -27,9 +33,51 @@ def owner_only(view):
     return wrapper
 
 
+def is_member(user, inst):
+    """Owner of the institute, or a student registered with it."""
+    if not user.is_authenticated:
+        return False
+    if inst.owner_id == user.id:
+        return True
+    sp = getattr(user, "student_profile", None)
+    return bool(sp and sp.institute_id == inst.id)
+
+
+def can_view(request, inst):
+    return is_member(request.user, inst) or inst.id in request.session.get("unlocked", [])
+
+
+def member_view(view):
+    """Logged-in users only; other institutes need the institute password (unlock)."""
+    @wraps(view)
+    def wrapper(request, slug, *a, **kw):
+        inst = get_object_or_404(Institute, slug=slug)
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if not can_view(request, inst):
+            return redirect(f"{reverse('unlock', args=[inst.slug])}?next={request.path}")
+        return view(request, inst, *a, **kw)
+    return wrapper
+
+
+def member_only(view):
+    """Only the owner or students of this institute (not visitors who merely unlocked it)."""
+    @wraps(view)
+    @login_required
+    def wrapper(request, slug, *a, **kw):
+        inst = get_object_or_404(Institute, slug=slug)
+        if not is_member(request.user, inst):
+            messages.error(request, "Only members of this institute can do that.")
+            return redirect("dashboard", slug=inst.slug)
+        return view(request, inst, *a, **kw)
+    return wrapper
+
+
 # ------------------------------------------------------------------ public pages
 def home(request):
-    return render(request, "home.html", dict(campuses=Institute.objects.all()[:12]))
+    return render(request, "home.html", dict(
+        campuses=Institute.objects.all()[:12], n_campuses=Institute.objects.count(),
+        n_rooms=Room.objects.count(), n_students=StudentProfile.objects.count()))
 
 
 def signup(request):
@@ -44,8 +92,33 @@ def signup(request):
     return render(request, "signup.html", dict(form=form))
 
 
+def student_signup(request):
+    if request.user.is_authenticated:
+        return redirect("my_campus")
+    form = StudentSignupForm(request.POST or None, initial={"institute": request.GET.get("institute")})
+    if request.method == "POST" and form.is_valid():
+        profile = form.save()
+        login(request, profile.user)
+        messages.success(request, f"Welcome, {profile.full_name}! You joined {profile.institute.name}.")
+        return redirect("dashboard", slug=profile.institute.slug)
+    return render(request, "student_signup.html", dict(form=form, has_institutes=Institute.objects.exists()))
+
+
+def student_login(request):
+    if request.user.is_authenticated:
+        return redirect("my_campus")
+    form = StudentLoginForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        login(request, form.cleaned_data["user"])
+        return redirect("dashboard", slug=form.cleaned_data["institute"].slug)
+    return render(request, "student_login.html", dict(form=form))
+
+
 @login_required
 def my_campus(request):
+    profile = getattr(request.user, "student_profile", None)
+    if profile:
+        return redirect("dashboard", slug=profile.institute.slug)
     inst = getattr(request.user, "institute", None)
     if not inst:
         return redirect("home")
@@ -62,8 +135,13 @@ def _rooms(inst, request):
     return rooms
 
 
-def dashboard(request, slug):
-    inst = get_object_or_404(Institute, slug=slug)
+def _url(**params):
+    from urllib.parse import urlencode
+    return "?" + urlencode({k: v for k, v in params.items() if v})
+
+
+@member_view
+def dashboard(request, inst):
     now = local_now()
     try:
         day = date.fromisoformat(request.GET.get("date", ""))
@@ -71,6 +149,11 @@ def dashboard(request, slug):
         day = now.date()
     is_today = day == now.date()
     minute = mins(now.time())
+    sel_dept = request.GET.get("dept", "") if request.GET.get("dept", "").isdigit() else ""
+    sel_type = request.GET.get("type", "") if request.GET.get("type") in dict(Room.TYPES) else ""
+    dept_obj = Department.objects.filter(institute=inst, pk=sel_dept).first() if sel_dept else None
+    if sel_dept and not dept_obj:
+        sel_dept = ""
 
     rooms = list(_rooms(inst, request))
     blocks = build_day(rooms, day)
@@ -84,32 +167,117 @@ def dashboard(request, slug):
     hours = [{"label": fmt(h), "width": 60 / span * 100} for h in range(w0, w1, 60)]
     now_left = (minute - w0) / span * 100 if is_today and w0 <= minute <= w1 else None
 
+    # grouped by room type (Classrooms / Labs / Other) - for the whole institute or one department
+    type_label = dict(Room.TYPES)
     sections, counts = {}, {FREE: 0, BUSY: 0, CHANGED: 0, BOOKED: 0, EMERGENCY: 0}
+    dept_free = {}
     for r in rooms:
         bl = blocks[r.id]
         for b in bl:
             b["left"] = (b["start"] - w0) / span * 100
             b["width"] = (b["end"] - b["start"]) / span * 100
         st = status_at(bl, minute) if is_today else None
-        sec = sections.setdefault(r.department, dict(rows=[], free=0))
+        sec = sections.setdefault(r.room_type, dict(key=r.room_type, label=type_label[r.room_type] + "s"
+                                                    if r.room_type != Room.OTHER else "Seminar & other rooms",
+                                                    rows=[], free=0))
         if st:
             counts[st["state"]] += 1
             st["text"] = STATE_TEXT[st["state"]]
             sec["free"] += st["state"] == FREE
+            dept_free[r.department_id] = dept_free.get(r.department_id, 0) + (st["state"] == FREE)
         sec["rows"].append({"room": r, "blocks": bl, "status": st})
+    order = [Room.CLASSROOM, Room.LAB, Room.OTHER]
+    section_list = [sections[k] for k in order if k in sections]
+
+    base = dict(dept=sel_dept, type=sel_type, date=day.isoformat() if not is_today else "")
+    dept_chips = [dict(id="", name="All departments", active=not sel_dept,
+                       url=_url(**{**base, "dept": ""}), n=Room.objects.filter(department__institute=inst).count())]
+    for d in Department.objects.filter(institute=inst).annotate(n=Count("rooms")):
+        dept_chips.append(dict(id=d.id, name=d.name, n=d.n, active=str(d.id) == sel_dept,
+                               free=dept_free.get(d.id) if is_today and not sel_dept else None,
+                               url=_url(**{**base, "dept": d.id})))
+    type_chips = [dict(label="All", active=not sel_type, url=_url(**{**base, "type": ""}))] + [
+        dict(label=l + "s" if v != Room.OTHER else "Other", active=sel_type == v, url=_url(**{**base, "type": v}))
+        for v, l in Room.TYPES]
+
+    dept_info = None
+    if dept_obj:
+        all_rooms = Room.objects.filter(department=dept_obj)
+        divisions = sorted(set(ClassSession.objects.filter(room__department=dept_obj)
+                               .exclude(class_name="").values_list("class_name", flat=True)))
+        teachers = (ClassSession.objects.filter(room__department=dept_obj).exclude(teacher="")
+                    .values("teacher").distinct().count())
+        dept_info = dict(obj=dept_obj, classrooms=all_rooms.filter(room_type=Room.CLASSROOM).count(),
+                         labs=all_rooms.filter(room_type=Room.LAB).count(),
+                         other=all_rooms.filter(room_type=Room.OTHER).count(),
+                         divisions=divisions, teachers=teachers,
+                         weekly_slots=ClassSession.objects.filter(room__department=dept_obj).count(),
+                         free_now=sum(s["free"] for s in section_list) if is_today else None)
+
+    switch = [dict(inst=i, url=reverse("dashboard", args=[i.slug]), current=i.id == inst.id,
+                   joined=is_member(request.user, i)) for i in Institute.objects.all()]
 
     ctx = dict(
-        inst=inst, sections=list(sections.items()), hours=hours, now_left=now_left,
+        inst=inst, sections=section_list, hours=hours, now_left=now_left,
         is_today=is_today, day=day, now=now, counts=counts, total=len(rooms),
-        departments=Department.objects.filter(institute=inst), room_types=Room.TYPES,
-        sel_dept=request.GET.get("dept", ""), sel_type=request.GET.get("type", ""),
-        prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1),
+        dept_chips=dept_chips, type_chips=type_chips, dept_info=dept_info, switch=switch,
+        sel_dept=sel_dept, sel_type=sel_type, can_book=is_member(request.user, inst),
+        is_owner=inst.owner_id == request.user.id,
+        prev_url=_url(**{**base, "date": (day - timedelta(days=1)).isoformat()}),
+        next_url=_url(**{**base, "date": (day + timedelta(days=1)).isoformat()}),
+        today_url=_url(**{**base, "date": ""}),
     )
     return render(request, "dashboard.html", ctx)
 
 
-def api_status(request, slug):
+@login_required
+def unlock(request, slug):
+    """Browse another institute by entering its institute password."""
     inst = get_object_or_404(Institute, slug=slug)
+    nxt = request.GET.get("next") or request.POST.get("next") or reverse("dashboard", args=[slug])
+    if not url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}):
+        nxt = reverse("dashboard", args=[slug])
+    if can_view(request, inst):
+        return redirect(nxt)
+    form = UnlockForm(request.POST or None)
+    attempts = request.session.get("unlock_tries", {})
+    if request.method == "POST" and form.is_valid():
+        if attempts.get(str(inst.id), 0) >= 5:
+            form.add_error("password", "Too many wrong attempts. Please try again later.")
+        elif inst.check_access_password(form.cleaned_data["password"]):
+            request.session["unlocked"] = list(set(request.session.get("unlocked", []) + [inst.id]))
+            return redirect(nxt)
+        else:
+            attempts[str(inst.id)] = attempts.get(str(inst.id), 0) + 1
+            request.session["unlock_tries"] = attempts
+            form.add_error("password", "Wrong institute password.")
+    return render(request, "unlock.html", dict(form=form, target=inst, next=nxt))
+
+
+@owner_only
+def access(request, inst):
+    form = InstitutePasswordForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        inst.set_access_password(form.cleaned_data["password1"])
+        inst.save(update_fields=["access_password"])
+        messages.success(request, "Institute password updated. Share the new one with your students.")
+        return redirect("access", slug=inst.slug)
+    return render(request, "access.html", dict(
+        inst=inst, form=form, has_password=bool(inst.access_password),
+        students=StudentProfile.objects.filter(institute=inst)))
+
+
+@owner_only
+@require_POST
+def remove_student(request, inst, pk):
+    sp = get_object_or_404(StudentProfile, pk=pk, institute=inst)
+    sp.user.delete()
+    messages.success(request, "Student removed.")
+    return redirect("access", slug=inst.slug)
+
+
+@member_view
+def api_status(request, inst):
     now = local_now()
     rooms = list(_rooms(inst, request))
     blocks = build_day(rooms, now.date())
@@ -121,12 +289,13 @@ def api_status(request, slug):
     return JsonResponse({"institute": inst.name, "as_of": now.isoformat(), "rooms": data})
 
 
-def book(request, slug):
-    """Anyone (student or faculty) can hold a session in a room that is free."""
-    inst = get_object_or_404(Institute, slug=slug)
+@member_only
+def book(request, inst):
+    """Members (students and faculty of this institute) can hold a session in a free room."""
     now = local_now()
+    profile = getattr(request.user, "student_profile", None)
     initial = {"date": now.date(), "start_time": now.time().replace(second=0, microsecond=0),
-               "room": request.GET.get("room")}
+               "room": request.GET.get("room"), "teacher": profile.full_name if profile else ""}
     form = BookingForm(request.POST or None, institute=inst, initial=initial)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
@@ -138,7 +307,7 @@ def book(request, slug):
             Override.objects.create(
                 room=d["room"], kind=Override.BOOKING, role=d["role"], date=d["date"],
                 start_time=d["start_time"], end_time=d["end_time"], title=d["title"],
-                teacher=d["teacher"], created_by=request.user if request.user.is_authenticated else None)
+                teacher=d["teacher"], created_by=request.user)
             messages.success(request, f"{d['room'].name} is yours on {d['date']:%d %b}, "
                                       f"{d['start_time']:%H:%M}–{d['end_time']:%H:%M}.")
             return redirect("dashboard", slug=inst.slug)

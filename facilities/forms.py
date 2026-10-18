@@ -1,11 +1,13 @@
+import re
 from datetime import date
 
 from django import forms
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
 
-from .models import Institute, Override, Room
+from .models import Institute, Override, Room, StudentProfile
 
 User = get_user_model()
 
@@ -14,10 +16,22 @@ class InstituteSignupForm(UserCreationForm):
     institute_name = forms.CharField(max_length=150, label="College / institute name")
     city = forms.CharField(max_length=80, required=False)
     email = forms.EmailField(required=False)
+    institute_password = forms.CharField(
+        label="Institute password", min_length=6, widget=forms.PasswordInput(render_value=False),
+        help_text="Students need this to join your institute. You can change it later.")
+    institute_password2 = forms.CharField(label="Confirm institute password",
+                                          widget=forms.PasswordInput(render_value=False))
 
     class Meta:
         model = User
-        fields = ("institute_name", "city", "username", "email", "password1", "password2")
+        fields = ("institute_name", "city", "username", "email", "password1", "password2",
+                  "institute_password", "institute_password2")
+
+    def clean(self):
+        data = super().clean()
+        if data.get("institute_password") and data["institute_password"] != data.get("institute_password2"):
+            self.add_error("institute_password2", "The two institute passwords do not match.")
+        return data
 
     def clean_institute_name(self):
         name = self.cleaned_data["institute_name"].strip()
@@ -33,8 +47,90 @@ class InstituteSignupForm(UserCreationForm):
         slug, n = base, 2
         while Institute.objects.filter(slug=slug).exists():
             slug, n = f"{base}-{n}", n + 1
-        return Institute.objects.create(owner=user, name=self.cleaned_data["institute_name"],
-                                        slug=slug, city=self.cleaned_data.get("city", ""))
+        inst = Institute(owner=user, name=self.cleaned_data["institute_name"], slug=slug,
+                         city=self.cleaned_data.get("city", ""))
+        inst.set_access_password(self.cleaned_data["institute_password"])
+        inst.save()
+        return inst
+
+
+PRN_RE = re.compile(r"^[A-Za-z0-9_-]{3,30}$")
+
+
+def student_username(inst, prn):
+    return f"{inst.slug}__{prn.lower()}"
+
+
+class StudentSignupForm(forms.Form):
+    institute = forms.ModelChoiceField(Institute.objects.all(), empty_label="Select your institute")
+    full_name = forms.CharField(max_length=120)
+    prn = forms.CharField(max_length=30, label="PRN / ID number")
+    institute_password = forms.CharField(label="Institute password", widget=forms.PasswordInput,
+                                         help_text="Ask your college for this password.")
+    password1 = forms.CharField(label="Create your password", widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Confirm your password", widget=forms.PasswordInput)
+
+    def clean_prn(self):
+        prn = self.cleaned_data["prn"].strip().upper()
+        if not PRN_RE.match(prn):
+            raise forms.ValidationError("Use 3-30 letters, numbers, - or _ only.")
+        return prn
+
+    def clean(self):
+        data = super().clean()
+        inst, prn = data.get("institute"), data.get("prn")
+        if inst and data.get("institute_password") is not None:
+            if not inst.check_access_password(data["institute_password"]):
+                self.add_error("institute_password", "Wrong institute password.")
+        if inst and prn and StudentProfile.objects.filter(institute=inst, prn=prn).exists():
+            self.add_error("prn", "This PRN / ID is already registered. Please log in.")
+        p1, p2 = data.get("password1"), data.get("password2")
+        if p1 and p2 and p1 != p2:
+            self.add_error("password2", "The two passwords do not match.")
+        elif p1:
+            try:
+                validate_password(p1)
+            except forms.ValidationError as e:
+                self.add_error("password1", e)
+        return data
+
+    def save(self):
+        d = self.cleaned_data
+        user = User.objects.create_user(username=student_username(d["institute"], d["prn"]),
+                                        password=d["password1"], first_name=d["full_name"][:150])
+        return StudentProfile.objects.create(user=user, institute=d["institute"],
+                                             full_name=d["full_name"], prn=d["prn"])
+
+
+class StudentLoginForm(forms.Form):
+    institute = forms.ModelChoiceField(Institute.objects.all(), empty_label="Select your institute")
+    prn = forms.CharField(max_length=30, label="PRN / ID number")
+    password = forms.CharField(widget=forms.PasswordInput)
+
+    def clean(self):
+        data = super().clean()
+        if data.get("institute") and data.get("prn") and data.get("password"):
+            user = authenticate(username=student_username(data["institute"], data["prn"].strip()),
+                                password=data["password"])
+            if not user or not hasattr(user, "student_profile"):
+                raise forms.ValidationError("Wrong PRN / ID or password for this institute.")
+            data["user"] = user
+        return data
+
+
+class InstitutePasswordForm(forms.Form):
+    password1 = forms.CharField(label="New institute password", min_length=6, widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Confirm new password", widget=forms.PasswordInput)
+
+    def clean(self):
+        data = super().clean()
+        if data.get("password1") and data["password1"] != data.get("password2"):
+            self.add_error("password2", "The two passwords do not match.")
+        return data
+
+
+class UnlockForm(forms.Form):
+    password = forms.CharField(label="Institute password", widget=forms.PasswordInput)
 
 
 class UploadForm(forms.Form):

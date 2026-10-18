@@ -1,6 +1,7 @@
-{% extends "base.html" %}{% block title %}Log in{% endblock %}
+{% extends "base.html" %}{% block title %}Institute login{% endblock %}
 {% block content %}
-<div class="panel narrow"><h2>Log in</h2><p class="muted">For institute accounts. Students do not need to log in.</p>
-<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Log in</button></form>
-<p class="muted">New campus? <a href="{% url 'signup' %}">Register it</a>.</p></div>
+<div class="auth-card">{% include "_authtabs.html" %}
+<h2>Institute login</h2><p class="muted">Sign in with the account you created when registering your institute.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn block">Log in</button></form>
+<p class="muted center">New institute? <a href="{% url 'signup' %}">Register it</a></p></div>
 {% endblock %}

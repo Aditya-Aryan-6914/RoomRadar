@@ -1,0 +1,4 @@
+<div class="tabs2">
+  <a href="{% url 'student_login' %}" class="{% if request.resolver_match.url_name == 'student_login' or request.resolver_match.url_name == 'student_signup' %}on{% endif %}">I'm a student / member</a>
+  <a href="{% url 'login' %}" class="{% if request.resolver_match.url_name == 'login' or request.resolver_match.url_name == 'signup' %}on{% endif %}">I'm an institute</a>
+</div>

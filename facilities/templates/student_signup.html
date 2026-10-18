@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% block title %}Join your institute{% endblock %}
+{% block content %}
+<div class="auth-card">{% include "_authtabs.html" %}
+<h2>Join your institute</h2>
+{% if not has_institutes %}<p class="muted">No institute has registered yet. Ask your college to <a href="{% url 'signup' %}">register</a> first.</p>
+{% else %}<p class="muted">Select your institute, enter your PRN / ID and the institute password given by your college.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn block">Create account</button></form>{% endif %}
+<p class="muted center">Already joined? <a href="{% url 'student_login' %}">Log in</a></p></div>
+{% endblock %}

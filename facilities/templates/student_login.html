@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Student login{% endblock %}
+{% block content %}
+<div class="auth-card">{% include "_authtabs.html" %}
+<h2>Student / member login</h2><p class="muted">Choose your institute and sign in with your PRN or ID number.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn block">Log in</button></form>
+<p class="muted center">First time here? <a href="{% url 'student_signup' %}">Join your institute</a></p></div>
+{% endblock %}

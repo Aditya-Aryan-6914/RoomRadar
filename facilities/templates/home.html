@@ -1,44 +1,48 @@
-{% extends "base.html" %}{% block title %}Find free classrooms &amp; labs live{% endblock %}
+{% extends "base.html" %}{% block title %}Find free classrooms &amp; labs, live{% endblock %}
 {% block content %}
 <section class="hero">
-  <span class="pill">Hackathon project · Dynamic Resource Allocation</span>
-  <h1>Every empty classroom on campus,<br><em>live on one screen.</em></h1>
-  <p>Rooms and labs sit idle between lectures while students hunt for a place to discuss or study.
-     RoomRadar reads your timetable PDF and shows, second by second, which room is free, who is teaching in the others, and what changed today.</p>
-  <div class="cta"><a class="btn big" href="{% url 'signup' %}">Register your college</a><a class="btn ghost big" href="#how">See how it works</a></div>
-  <div class="legend big-legend"><span><i class="dot free"></i>Free</span><span><i class="dot busy"></i>Class running</span><span><i class="dot changed"></i>Extra class</span><span><i class="dot booked"></i>Booked by student/faculty</span><span><i class="dot emergency"></i>Emergency</span></div>
+  <div class="hero-text">
+    <span class="pill"><i class="pulse"></i> Live campus availability</span>
+    <h1>Every free classroom and lab on campus, <em>live on one screen.</em></h1>
+    <p>RoomRadar reads your institute's timetable and shows which rooms are free right now, who is teaching in the rest, and what changed today. Students find a quiet place in seconds; faculty see every empty slot.</p>
+    <div class="cta"><a class="btn big" href="{% url 'student_signup' %}">I'm a student</a><a class="btn ghost big" href="{% url 'signup' %}">Register my institute</a></div>
+    <div class="trust"><span><b>{{ n_campuses }}</b> institute{{ n_campuses|pluralize }}</span><span><b>{{ n_rooms }}</b> rooms tracked</span><span><b>{{ n_students }}</b> student{{ n_students|pluralize }}</span></div>
+  </div>
+  <div class="hero-art" aria-hidden="true">
+    <div class="mock"><div class="mock-h"><b>Computer Science</b><span>3 free</span></div>
+      <div class="mc free"><div><b>Room 401</b><small>Free until 14:00</small></div><em>Free</em></div>
+      <div class="mc busy"><div><b>Lab 2</b><small>Data Structures · Prof. Rao</small></div><em>In class</em></div>
+      <div class="mc booked"><div><b>Room 305</b><small>Group study · booked</small></div><em>Booked</em></div>
+      <div class="mc free"><div><b>Room 208</b><small>Free all day</small></div><em>Free</em></div></div>
+  </div>
 </section>
 
 <section id="how" class="sec">
   <h2>How it works</h2>
   <div class="steps">
-    <div class="step"><b>1</b><h3>Register your college</h3><p>Create an account for your institute. Your campus gets its own private dashboard link. Nothing is pre-loaded: every room comes from your data.</p></div>
-    <div class="step"><b>2</b><h3>Upload a timetable PDF</h3><p>Drop in a department timetable. Department name, each division, its classroom, subjects and teachers are read automatically. One PDF can hold many divisions.</p></div>
-    <div class="step"><b>3</b><h3>Dashboard builds itself</h3><p>Live room cards plus a day timeline per department: red when a class is running with the teacher's name, green when it is free.</p></div>
+    <div class="step"><b>1</b><h3>Institute registers</h3><p>Create the institute account and set an institute password. Your campus gets its own private dashboard.</p></div>
+    <div class="step"><b>2</b><h3>Upload timetable PDFs</h3><p>Departments, divisions, classrooms, labs, subjects and teachers are read automatically.</p></div>
+    <div class="step"><b>3</b><h3>Students join</h3><p>Pick your institute, enter your PRN / ID and the institute password. Browse rooms by department.</p></div>
   </div>
 </section>
 
-<section class="sec">
-  <h2>What you get</h2>
+<section id="features" class="sec">
+  <h2>Built for campus life</h2>
   <div class="feats">
-    <div class="feat"><h3>Live status</h3><p>Free rooms show "free until" so students know how long they can stay. Refreshes every 30 seconds.</p></div>
-    <div class="feat"><h3>Hold a session</h3><p>Students and faculty can reserve a free room for a group discussion, project work or an extra lecture. Clashes are blocked automatically.</p></div>
-    <div class="feat"><h3>Changes &amp; emergencies</h3><p>Cancel a class, add a rescheduled one or block a room instantly. Remove the change and the timetable takes over again.</p></div>
-    <div class="feat"><h3>Multi-division PDFs</h3><p>AIML-A, AIML-B, AIML-C in one file? Each division gets its own classroom and timetable.</p></div>
-    <div class="feat"><h3>Always your data</h3><p>Replace or delete a timetable at any time. Rooms that no longer have data disappear from the dashboard.</p></div>
-    <div class="feat"><h3>Open JSON API</h3><p>Every campus exposes <code>/c/&lt;campus&gt;/api/status/</code> for signage screens or apps.</p></div>
+    <div class="feat"><h3>Live status</h3><p>Free rooms show "free until" so you know how long you can stay. Refreshes every 30 seconds.</p></div>
+    <div class="feat"><h3>Institute, then department</h3><p>See all classrooms and labs of an institute, then drill into one department's divisions and rooms.</p></div>
+    <div class="feat"><h3>Hold a session</h3><p>Reserve a free room for group study, project work or an extra lecture. Clashes are blocked.</p></div>
+    <div class="feat"><h3>Changes &amp; emergencies</h3><p>Cancel a class, add a rescheduled one or block a room instantly.</p></div>
+    <div class="feat"><h3>Private by design</h3><p>Each institute is protected by its own password. Data is isolated per institute.</p></div>
+    <div class="feat"><h3>Light &amp; dark mode</h3><p>Easy on the eyes in the library at night. Your choice is remembered.</p></div>
   </div>
-</section>
-
-<section class="sec">
-  <h2>PDF format that is understood</h2>
-  <p class="muted">A grid timetable: time slots across the top (<code>9:00-10:00</code>), weekdays down the left, and each cell as <code>Subject / Teacher / Room (optional)</code>.
-  A title line such as <code>Artificial Intelligence - Time Table</code> gives the department and <code>Class: SE-A &nbsp; Room No: 101</code> (or <code>Division: B</code>) gives the division and its room. Scanned image-only PDFs are not supported.</p>
 </section>
 
 <section id="campuses" class="sec">
-  <h2>Campuses on RoomRadar</h2>
-  {% for c in campuses %}<a class="campus-card" href="{% url 'dashboard' slug=c.slug %}"><b>{{ c.name }}</b><span>{{ c.city|default:"Live dashboard" }} →</span></a>
-  {% empty %}<p class="muted">No campus has registered yet. <a href="{% url 'signup' %}">Be the first.</a></p>{% endfor %}
+  <h2>Institutes on RoomRadar</h2>
+  <div class="campus-grid">
+  {% for c in campuses %}<a class="campus-card" href="{% url 'student_signup' %}?institute={{ c.id }}"><b>{{ c.name }}</b><span>{{ c.city|default:"Join this institute" }} →</span></a>
+  {% empty %}<p class="muted">No institute has registered yet. <a href="{% url 'signup' %}">Be the first.</a></p>{% endfor %}
+  </div>
 </section>
 {% endblock %}

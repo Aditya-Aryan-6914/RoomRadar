@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Unlock {{ target.name }}{% endblock %}
+{% block content %}
+<div class="auth-card"><h2>{{ target.name }}</h2>
+<p class="muted">This institute is private. Enter its institute password to browse its rooms (view only).</p>
+<form method="post" class="form">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{{ form.as_div }}<button class="btn block">Unlock</button></form>
+<p class="muted center"><a href="javascript:history.back()">← Go back</a></p></div>
+{% endblock %}

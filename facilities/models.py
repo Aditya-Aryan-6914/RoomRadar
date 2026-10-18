@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 
 DAYS = [(0, "Monday"), (1, "Tuesday"), (2, "Wednesday"), (3, "Thursday"),
@@ -12,6 +13,8 @@ class Institute(models.Model):
     name = models.CharField(max_length=150)
     slug = models.SlugField(max_length=60, unique=True)
     city = models.CharField(max_length=80, blank=True)
+    access_password = models.CharField(max_length=128, blank=True,
+                                       help_text="Hashed institute password students need to join")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -19,6 +22,29 @@ class Institute(models.Model):
 
     def __str__(self):
         return self.name
+
+    def set_access_password(self, raw):
+        self.access_password = make_password(raw)
+
+    def check_access_password(self, raw):
+        return bool(self.access_password) and check_password(raw, self.access_password)
+
+
+class StudentProfile(models.Model):
+    """A student / member account that belongs to exactly one institute."""
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                related_name="student_profile")
+    institute = models.ForeignKey(Institute, on_delete=models.CASCADE, related_name="students")
+    full_name = models.CharField(max_length=120)
+    prn = models.CharField("PRN / ID number", max_length=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["full_name"]
+        unique_together = [("institute", "prn")]
+
+    def __str__(self):
+        return f"{self.full_name} ({self.prn}) @ {self.institute}"
 
 
 class Department(models.Model):
