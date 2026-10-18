@@ -144,3 +144,35 @@ class Override(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} · {self.room.name} · {self.date} {self.start_time:%H:%M}"
+
+
+class Notification(models.Model):
+    """In-site alert for one user (shown as a bell + toast)."""
+    CANCELLED, FREED, BOOKED, EXTRA, RESERVED = "cancelled", "freed", "booked", "extra", "reserved"
+    UPDATED, REMOVED, TIMETABLE = "updated", "removed", "timetable"
+    KINDS = [(CANCELLED, "Class cancelled"), (FREED, "Room free"), (BOOKED, "New booking"),
+             (EXTRA, "Extra class"), (RESERVED, "Room reserved"), (UPDATED, "Session edited"),
+             (REMOVED, "Session removed"), (TIMETABLE, "Timetable changed")]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
+    institute = models.ForeignKey(Institute, on_delete=models.CASCADE, related_name="notifications")
+    room = models.ForeignKey(Room, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    kind = models.CharField(max_length=10, choices=KINDS)
+    title = models.CharField(max_length=150)
+    body = models.CharField(max_length=300, blank=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [models.Index(fields=["user", "institute", "is_read"])]
+
+    def __str__(self):
+        return f"{self.title} -> {self.user}"
+
+
+class RoomState(models.Model):
+    """Last status seen for a room, so we can detect 'became free' transitions."""
+    room = models.OneToOneField(Room, on_delete=models.CASCADE, related_name="state")
+    state = models.CharField(max_length=12)
+    updated_at = models.DateTimeField(auto_now=True)

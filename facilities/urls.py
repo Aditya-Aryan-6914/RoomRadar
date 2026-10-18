@@ -10,6 +10,8 @@ urlpatterns = [
     path("go/", views.my_campus, name="my_campus"),
     path("c/<slug:slug>/", views.dashboard, name="dashboard"),
     path("c/<slug:slug>/unlock/", views.unlock, name="unlock"),
+    path("c/<slug:slug>/notifications/", views.notifications, name="notifications"),
+    path("c/<slug:slug>/notifications/read/", views.notifications_read, name="notifications_read"),
     path("c/<slug:slug>/access/", views.access, name="access"),
     path("c/<slug:slug>/access/student/<int:pk>/remove/", views.remove_student, name="remove_student"),
     path("c/<slug:slug>/api/status/", views.api_status, name="api_status"),
@@ -18,5 +20,6 @@ urlpatterns = [
     path("c/<slug:slug>/upload/<int:pk>/json/", views.upload_json, name="upload_json"),
     path("c/<slug:slug>/upload/<int:pk>/delete/", views.delete_upload, name="delete_upload"),
     path("c/<slug:slug>/changes/", views.manage, name="manage"),
-    path("c/<slug:slug>/changes/<int:pk>/delete/", views.delete_override, name="delete_override"),
+    path("c/<slug:slug>/events/<int:pk>/edit/", views.edit_event, name="edit_event"),
+    path("c/<slug:slug>/events/<int:pk>/delete/", views.delete_event, name="delete_event"),
 ]

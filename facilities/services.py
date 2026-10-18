@@ -1,10 +1,11 @@
 import json
-from datetime import time
+from datetime import time, timedelta
 
 from django.db import transaction
 from django.utils import timezone
 
-from .models import ClassSession, Department, Override, Room, TimetableUpload
+from .models import (ClassSession, Department, Notification, Override, Room, RoomState,
+                     StudentProfile, TimetableUpload)
 from .parser import parse_pdf
 
 FREE, BUSY, CHANGED, EMERGENCY, BOOKED = "free", "busy", "changed", "emergency", "booked"
@@ -152,9 +153,113 @@ def status_at(blocks, minute):
                 year="", batch="")
 
 
-def room_conflict(room, day, start, end):
+def room_conflict(room, day, start, end, ignore_id=None):
     """First block that makes `room` unavailable in [start, end) on `day`, or None."""
     for b in build_day([room], day)[room.id]:
+        if ignore_id and b.get("override_id") == ignore_id:
+            continue
         if b["kind"] in PRIORITY and _overlap(b["start"], b["end"], mins(start), mins(end)):
             return b
     return None
+
+
+# ---------------------------------------------------------------- notifications
+def notify_members(inst, kind, title, body="", room=None, exclude=None):
+    """One notification per member (owner + students), except the person who caused it."""
+    ids = {inst.owner_id, *StudentProfile.objects.filter(institute=inst).values_list("user_id", flat=True)}
+    ids.discard(getattr(exclude, "id", None))
+    Notification.objects.bulk_create([Notification(user_id=u, institute=inst, room=room, kind=kind,
+                                                   title=title, body=body) for u in ids])
+
+
+def announce_override(inst, o, actor=None):
+    """Alert members about a cancellation / booking / extra class / emergency block."""
+    when = f"{o.date:%d %b}, {o.start_time:%H:%M}-{o.end_time:%H:%M}"
+    name = o.room.name
+    if o.kind == Override.CANCEL:
+        what = o.title or "Class"
+        notify_members(inst, Notification.CANCELLED, f"Class cancelled · {name}",
+                       f"{what} ({when}) is cancelled. The room is free.", o.room, actor)
+    elif o.kind == Override.BOOKING:
+        who = f" by {o.teacher}" if o.teacher else ""
+        notify_members(inst, Notification.BOOKED, f"New session booked · {name}",
+                       f"{o.title}{who}, {when}.", o.room, actor)
+    elif o.kind == Override.EXTRA:
+        notify_members(inst, Notification.EXTRA, f"Extra class added · {name}",
+                       f"{o.title or 'Extra class'}, {when}.", o.room, actor)
+    else:
+        notify_members(inst, Notification.RESERVED, f"Room reserved · {name}",
+                       f"{o.reason or o.title or 'Reserved'}, {when}.", o.room, actor)
+    sync_room_states(inst, notify=False)   # do not also announce 'free'/'busy' for this change
+
+
+def _when(o):
+    return f"{o.date:%d %b}, {o.start_time:%H:%M}-{o.end_time:%H:%M}"
+
+
+def snapshot(o):
+    """Remember what an override looked like before it is edited or deleted."""
+    return dict(kind=o.kind, room=o.room, title=o.title, where=f"{o.room.name} · {_when(o)}")
+
+
+_LABEL = {Override.BOOKING: "Booking", Override.EXTRA: "Extra class",
+          Override.CANCEL: "Cancellation", Override.OCCUPY: "Reservation"}
+
+
+def announce_update(inst, o, old, actor=None):
+    """An existing booking / change was edited."""
+    new = f"{o.room.name} · {_when(o)}"
+    what = o.title or _LABEL[o.kind]
+    body = f"{what}: {old['where']} → {new}." if old["where"] != new else f"{what} ({new}): details updated."
+    notify_members(inst, Notification.UPDATED, f"{_LABEL[o.kind]} updated · {o.room.name}", body, o.room, actor)
+    sync_room_states(inst, notify=False)
+
+
+def announce_removed(inst, old, actor=None):
+    """A booking / change was deleted."""
+    what = old["title"] or _LABEL[old["kind"]]
+    title, body = {
+        Override.BOOKING: ("Booking cancelled", f"{what} ({old['where']}) was cancelled. The room is available again."),
+        Override.CANCEL: ("Cancellation withdrawn", f"The class ({old['where']}) is back on the timetable."),
+        Override.EXTRA: ("Extra class removed", f"{what} ({old['where']}) was removed."),
+        Override.OCCUPY: ("Room reservation lifted", f"{what} ({old['where']}) no longer blocks the room."),
+    }[old["kind"]]
+    notify_members(inst, Notification.REMOVED, f"{title} · {old['room'].name}", body, old["room"], actor)
+    sync_room_states(inst, notify=False)
+
+
+def announce_timetable(inst, title, body, actor=None):
+    notify_members(inst, Notification.TIMETABLE, title, body, None, actor)
+    sync_room_states(inst, notify=False)
+
+
+def sync_room_states(inst, notify=True):
+    """Compare each room's live status with the last one stored; alert when it became free."""
+    now = local_now()
+    rooms = list(Room.objects.filter(department__institute=inst))
+    if not rooms:
+        return
+    blocks = build_day(rooms, now.date())
+    minute = mins(now.time())
+    known = {r.room_id: r for r in RoomState.objects.filter(room__in=rooms)}
+    new, freed = [], []
+    for r in rooms:
+        st = status_at(blocks[r.id], minute)
+        rec = known.get(r.id)
+        if rec is None:
+            new.append(RoomState(room=r, state=st["state"]))
+        elif rec.state != st["state"]:
+            # conditional update: if two clients poll at once, only one wins and notifies
+            won = RoomState.objects.filter(pk=rec.pk, state=rec.state).update(state=st["state"])
+            if won and notify and st["state"] == FREE:
+                freed.append((r, st))
+    RoomState.objects.bulk_create(new, ignore_conflicts=True)
+    if len(freed) > 3:
+        notify_members(inst, Notification.FREED, f"{len(freed)} rooms are free now",
+                       ", ".join(r.name for r, _ in freed[:6]) + ("..." if len(freed) > 6 else ""))
+    else:
+        for r, st in freed:
+            until = st.get("until")
+            notify_members(inst, Notification.FREED, f"{r.name} is free now",
+                           f"Free until {until}." if until else "Free for the rest of the day.", r)
+    Notification.objects.filter(institute=inst, created_at__lt=now - timedelta(days=7)).delete()
