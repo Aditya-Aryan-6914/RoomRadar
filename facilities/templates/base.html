@@ -3,6 +3,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}RoomRadar{% endblock %} · RoomRadar</title>
 <meta name="description" content="RoomRadar shows every free classroom and lab on your campus, live.">
+<script>document.documentElement.classList.add('js')</script>
 <script>(function(){try{var t=localStorage.getItem('rr-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){document.documentElement.setAttribute('data-theme','light')}})()</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
@@ -25,6 +26,12 @@
   </nav>
   <div class="auth">
   {% if user.is_authenticated %}
+    {% if my_inst %}<div class="bell-wrap" id="notifWrap" data-url="{% url 'notifications' slug=my_inst.slug %}" data-read-url="{% url 'notifications_read' slug=my_inst.slug %}" data-key="{{ my_inst.slug }}-{{ user.id }}">
+      <button type="button" id="bellBtn" class="icon-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false" title="Notifications">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span class="badge" id="bellBadge" hidden>0</span></button>
+      <div class="notif-panel" id="notifPanel" hidden><div class="np-h"><b>Notifications</b><button type="button" id="markRead" class="linkbtn">Mark all read</button></div><div id="notifList" class="np-list"><p class="muted small np-empty">Nothing yet.</p></div></div>
+    </div>{% endif %}
     {% if my_inst and not inst %}<a class="btn small" href="{% url 'dashboard' slug=my_inst.slug %}">My dashboard</a>{% endif %}
     <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn ghost small">Log out</button></form>
   {% else %}<a class="btn ghost small" href="{% url 'student_login' %}">Log in</a><a class="btn small" href="{% url 'signup' %}">Get started</a>{% endif %}
@@ -35,10 +42,13 @@
   </div>
 </div></header>
 <main class="wrap">
-  {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
+  {% for m in messages %}<div class="msg {{ m.tags }} js-flash" role="alert">{{ m }}</div>{% endfor %}
   {% block content %}{% endblock %}
 </main>
 <footer class="foot"><div class="wrap foot-in"><span><b>RoomRadar</b> · Smart campus space management</span><span>Live classroom &amp; lab availability for your institute</span></div></footer>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 <script src="{% static 'js/theme.js' %}"></script>
+<script src="{% static 'js/flash.js' %}"></script>
 <script src="{% static 'js/live.js' %}"></script>
+{% if my_inst %}<script src="{% static 'js/notifications.js' %}"></script>{% endif %}
 </body></html>

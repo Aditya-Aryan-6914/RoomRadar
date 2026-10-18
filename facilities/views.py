@@ -9,14 +9,17 @@ from django.db.models import Count
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.utils.timesince import timesince
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from .forms import (BookingForm, InstitutePasswordForm, InstituteSignupForm, OverrideForm,
                     QuickOccupyForm, StudentLoginForm, StudentSignupForm, UnlockForm, UploadForm)
-from .models import (ClassSession, Department, Institute, Override, Room, StudentProfile,
-                     TimetableUpload)
-from .services import (BOOKED, BUSY, CHANGED, EMERGENCY, FREE, STATE_TEXT, build_day,
+from .models import (ClassSession, Department, Institute, Notification, Override, Room,
+                     StudentProfile, TimetableUpload)
+from .services import (BOOKED, announce_override, announce_removed, announce_timetable,
+                       announce_update, snapshot, sync_room_states, BUSY, CHANGED, EMERGENCY, FREE, STATE_TEXT, build_day,
                        cleanup_empty, fmt, import_timetable, local_now, mins, room_conflict,
                        status_at)
 
@@ -71,6 +74,22 @@ def member_only(view):
             return redirect("dashboard", slug=inst.slug)
         return view(request, inst, *a, **kw)
     return wrapper
+
+
+def _flash_form_errors(request, form):
+    """Show form problems as a pop-up alert (messages are rendered as pop-ups by flash.js)."""
+    parts = []
+    for field, errs in form.errors.items():
+        label = "" if field == "__all__" else f"{form.fields[field].label or field.title()}: "
+        parts.append(label + " ".join(errs))
+    if parts:
+        messages.error(request, "Couldn't save. " + " ".join(parts[:3]))
+
+
+def can_edit_event(user, inst, o):
+    if inst.owner_id == user.id:
+        return True
+    return o.kind == Override.BOOKING and o.created_by_id == user.id and o.date >= local_now().date()
 
 
 # ------------------------------------------------------------------ public pages
@@ -301,20 +320,24 @@ def book(request, inst):
         d = form.cleaned_data
         clash = room_conflict(d["room"], d["date"], d["start_time"], d["end_time"])
         if clash:
-            form.add_error(None, f"{d['room'].name} is not free then: {clash['title']} "
-                                 f"({clash['label']}). Pick another room or time.")
+            messages.error(request, f"Booking failed: {d['room'].name} is not free then "
+                                    f"({clash['title']}, {clash['label']}). Pick another room or time.")
         else:
-            Override.objects.create(
+            o = Override.objects.create(
                 room=d["room"], kind=Override.BOOKING, role=d["role"], date=d["date"],
                 start_time=d["start_time"], end_time=d["end_time"], title=d["title"],
                 teacher=d["teacher"], created_by=request.user)
+            announce_override(inst, o, request.user)
             messages.success(request, f"{d['room'].name} is yours on {d['date']:%d %b}, "
                                       f"{d['start_time']:%H:%M}–{d['end_time']:%H:%M}.")
             return redirect("dashboard", slug=inst.slug)
+    if request.method == "POST" and form.errors:
+        _flash_form_errors(request, form)
     mine = []
     today = now.date()
     for o in Override.objects.filter(room__department__institute=inst, kind=Override.BOOKING,
-                                     date__gte=today).select_related("room")[:15]:
+                                     date__gte=today).select_related("room")[:25]:
+        o.editable = can_edit_event(request.user, inst, o)
         mine.append(o)
     return render(request, "book.html", dict(inst=inst, form=form, upcoming=mine,
                                              has_rooms=form.fields["room"].queryset.exists()))
@@ -332,6 +355,9 @@ def upload(request, inst):
         if groups:
             messages.success(request, f"Imported {sum(g['sessions'] for g in groups)} class slots "
                                       f"for {len(groups)} division(s). Dashboard is updated.")
+            announce_timetable(inst, "Timetable updated", f"{sum(g['sessions'] for g in groups)} class slots "
+                               + "for " + ", ".join(f"{g['department']} {g['class_name']}" for g in groups[:4])
+                               + ("..." if len(groups) > 4 else "") + ".", request.user)
         else:
             messages.error(request, "Nothing could be imported from that PDF.")
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -344,8 +370,11 @@ def upload(request, inst):
 @owner_only
 @require_POST
 def delete_upload(request, inst, pk):
-    get_object_or_404(TimetableUpload, pk=pk, institute=inst).delete()
+    up = get_object_or_404(TimetableUpload, pk=pk, institute=inst)
+    label = up.summary or up.filename or "A timetable"
+    up.delete()
     cleanup_empty(inst)
+    announce_timetable(inst, "Timetable removed", f"{label} was removed. Affected rooms may have changed.", request.user)
     messages.success(request, "Timetable removed from the dashboard.")
     return redirect("upload", slug=inst.slug)
 
@@ -362,29 +391,104 @@ def manage(request, inst):
                 end = now + timedelta(minutes=quick.cleaned_data["minutes"])
                 if end.date() != now.date():
                     end = end.replace(hour=23, minute=59)
-                Override.objects.create(
+                o = Override.objects.create(
                     room=quick.cleaned_data["room"], kind=Override.OCCUPY, date=now.date(),
                     start_time=now.time().replace(second=0, microsecond=0),
                     end_time=end.time().replace(second=0, microsecond=0),
                     title="Emergency occupancy", reason=quick.cleaned_data["reason"],
                     created_by=request.user)
+                announce_override(inst, o, request.user)
                 messages.success(request, "Room marked as occupied right now.")
                 return redirect("manage", slug=inst.slug)
         else:
             form = OverrideForm(request.POST, institute=inst)
             if form.is_valid():
-                Override.objects.create(created_by=request.user, **form.cleaned_data)
+                o = Override.objects.create(created_by=request.user, **form.cleaned_data)
+                announce_override(inst, o, request.user)
                 messages.success(request, "Change saved. Dashboard updated instantly.")
                 return redirect("manage", slug=inst.slug)
+    for f in (form, quick):
+        if f.is_bound and f.errors:
+            _flash_form_errors(request, f)
     upcoming = Override.objects.filter(room__department__institute=inst, date__gte=now.date()
                                        ).select_related("room", "room__department")
     return render(request, "manage.html", dict(inst=inst, form=form, quick=quick, upcoming=upcoming,
                                                has_rooms=form.fields["room"].queryset.exists()))
 
 
-@owner_only
+def _event_or_404(inst, pk):
+    return get_object_or_404(Override.objects.select_related("room"), pk=pk,
+                             room__department__institute=inst)
+
+
+def _back(request, inst):
+    return redirect("manage" if inst.owner_id == request.user.id else "book", slug=inst.slug)
+
+
+@member_only
+def edit_event(request, inst, pk):
+    """Edit a booking or change. Owners can edit anything; students only their own bookings."""
+    o = _event_or_404(inst, pk)
+    if not can_edit_event(request.user, inst, o):
+        messages.error(request, "You can only edit your own upcoming bookings.")
+        return _back(request, inst)
+    is_booking = o.kind == Override.BOOKING
+    Form = BookingForm if is_booking else OverrideForm
+    initial = dict(room=o.room_id, kind=o.kind, role=o.role or "student", date=o.date,
+                   start_time=o.start_time, end_time=o.end_time, title=o.title,
+                   teacher=o.teacher, reason=o.reason)
+    form = Form(request.POST or None, institute=inst, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        d = form.cleaned_data
+        clash = room_conflict(d["room"], d["date"], d["start_time"], d["end_time"],
+                              ignore_id=o.pk) if is_booking else None
+        if clash:
+            messages.error(request, f"Couldn't save: {d['room'].name} is not free then "
+                                    f"({clash['title']}, {clash['label']}). Pick another room or time.")
+        else:
+            old = snapshot(o)
+            for k, v in d.items():
+                setattr(o, k, v)
+            o.save()
+            announce_update(inst, o, old, request.user)
+            messages.success(request, "Changes saved. Everyone has been notified.")
+            return _back(request, inst)
+    elif request.method == "POST":
+        _flash_form_errors(request, form)
+    return render(request, "edit_event.html", dict(inst=inst, form=form, o=o, is_booking=is_booking,
+                                                   back=reverse("manage" if inst.owner_id == request.user.id
+                                                                else "book", args=[inst.slug])))
+
+
+@member_only
 @require_POST
-def delete_override(request, inst, pk):
-    get_object_or_404(Override, pk=pk, room__department__institute=inst).delete()
+def delete_event(request, inst, pk):
+    o = _event_or_404(inst, pk)
+    if not can_edit_event(request.user, inst, o):
+        messages.error(request, "You can only remove your own upcoming bookings.")
+        return _back(request, inst)
+    old = snapshot(o)
+    o.delete()
+    announce_removed(inst, old, request.user)
     messages.success(request, "Removed. The room is back to its normal timetable.")
-    return redirect("manage", slug=inst.slug)
+    return _back(request, inst)
+
+
+@member_only
+def notifications(request, inst):
+    """JSON for the bell. Every call also checks for rooms that just became free."""
+    sync_room_states(inst)
+    qs = Notification.objects.filter(user=request.user, institute=inst)
+    items = [dict(id=n.id, kind=n.kind, title=n.title, body=n.body, read=n.is_read,
+                  ago=("just now" if (timezone.now() - n.created_at).total_seconds() < 60
+                       else timesince(n.created_at).split(",")[0].replace("\xa0", " ") + " ago"),
+                  age_s=int((timezone.now() - n.created_at).total_seconds()))
+             for n in qs[:15]]
+    return JsonResponse({"unread": qs.filter(is_read=False).count(), "items": items})
+
+
+@member_only
+@require_POST
+def notifications_read(request, inst):
+    Notification.objects.filter(user=request.user, institute=inst, is_read=False).update(is_read=True)
+    return JsonResponse({"unread": 0})

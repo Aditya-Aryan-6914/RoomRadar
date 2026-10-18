@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Edit {% if is_booking %}booking{% else %}change{% endif %}{% endblock %}
+{% block content %}
+<div class="auth-card wide"><h2>Edit {% if is_booking %}booking{% else %}change{% endif %}</h2>
+<p class="muted">{{ o.room.name }} · {{ o.date|date:"D j M" }}. Everyone in the institute is notified when you save.</p>
+<form method="post" class="form">{% csrf_token %}{{ form.as_div }}
+<div class="btnrow"><button class="btn">Save changes</button><a class="btn ghost" href="{{ back }}">Back</a></div></form>
+<form method="post" action="{% url 'delete_event' slug=inst.slug pk=o.pk %}" onsubmit="return confirm('Remove this entry? Everyone will be notified.')">{% csrf_token %}<button class="btn ghost small danger">{% if is_booking %}Cancel this booking{% else %}Remove this change{% endif %}</button></form></div>
+{% endblock %}

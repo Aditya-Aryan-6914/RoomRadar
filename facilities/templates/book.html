@@ -8,7 +8,9 @@
 <form method="post" class="form">{% csrf_token %}{{ form.as_div }}<button class="btn">Reserve room</button></form>{% endif %}
 </div>
 <div class="panel"><h2>Upcoming sessions</h2>
-{% for o in upcoming %}<div class="row"><div><b>{{ o.room.name }}</b> · {{ o.title }}<div class="muted small">{{ o.date|date:"D j M" }} {{ o.start_time|time:"H:i" }}–{{ o.end_time|time:"H:i" }} · {{ o.teacher }} ({{ o.get_role_display }})</div></div></div>
+{% for o in upcoming %}<div class="row"><div><b>{{ o.room.name }}</b> · {{ o.title }}<div class="muted small">{{ o.date|date:"D j M" }} {{ o.start_time|time:"H:i" }}–{{ o.end_time|time:"H:i" }} · {{ o.teacher }} ({{ o.get_role_display }})</div></div>
+{% if o.editable %}<div class="acts"><a class="btn ghost small" href="{% url 'edit_event' slug=inst.slug pk=o.pk %}">Edit</a>
+<form method="post" action="{% url 'delete_event' slug=inst.slug pk=o.pk %}" onsubmit="return confirm('Cancel this booking? Everyone will be notified.')">{% csrf_token %}<button class="btn ghost small danger">Cancel</button></form></div>{% endif %}</div>
 {% empty %}<p class="muted">No self-booked sessions yet.</p>{% endfor %}</div>
 </div>
 {% endblock %}

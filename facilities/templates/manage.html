@@ -11,6 +11,7 @@
 <div class="panel"><h2>Upcoming changes &amp; bookings</h2>
 {% for o in upcoming %}<div class="row"><div><span class="tag {{ o.kind }}">{{ o.get_kind_display }}</span> <b>{{ o.room.name }}</b> · {{ o.date|date:"D j M" }} {{ o.start_time|time:"H:i" }}–{{ o.end_time|time:"H:i" }}
   <div class="muted small">{{ o.title }}{% if o.teacher %} · {{ o.teacher }}{% endif %}{% if o.reason %} · {{ o.reason }}{% endif %}</div></div>
-  <form method="post" action="{% url 'delete_override' slug=inst.slug pk=o.pk %}">{% csrf_token %}<button class="btn ghost small danger">Remove</button></form></div>
+  <div class="acts"><a class="btn ghost small" href="{% url 'edit_event' slug=inst.slug pk=o.pk %}">Edit</a>
+  <form method="post" action="{% url 'delete_event' slug=inst.slug pk=o.pk %}" onsubmit="return confirm('Remove this entry? Everyone will be notified.')">{% csrf_token %}<button class="btn ghost small danger">Remove</button></form></div></div>
 {% empty %}<p class="muted">Nothing scheduled.</p>{% endfor %}</div>
 {% endblock %}
