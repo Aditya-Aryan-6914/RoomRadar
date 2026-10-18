@@ -63,7 +63,7 @@
   {% if is_today %}
   <div class="cards v-cards">
     {% for r in sec.rows %}
-    <div class="card {{ r.status.state }}" data-s="{{ r.room.name }} {{ r.room.department.name }} {{ r.status.teacher }} {{ r.status.title }} {{ r.status.class_name }}">
+    <div class="card {{ r.status.state }}" data-s="{{ r.room.name }} {{ r.room.department.name }} {{ r.status.teacher }} {{ r.status.title }} {{ r.status.class_name }} {{ r.status.year }} {{ r.status.batch }}">
       <div class="ct"><h3>{{ r.room.name }}</h3><span class="tag {{ r.status.state }}">{{ r.status.text }}</span></div>
       <p class="dname">{{ r.room.department.name }}</p>
       {% if r.status.state == "free" %}
@@ -71,7 +71,7 @@
         {% if can_book %}<a class="mini" href="{% url 'book' slug=inst.slug %}?room={{ r.room.id }}">Hold a session →</a>{% endif %}
       {% else %}
         <p class="subj">{{ r.status.title }}</p>
-        <p class="who">{% if r.status.teacher %}{{ r.status.teacher }}{% endif %}{% if r.status.class_name %}{% if r.status.teacher %} · {% endif %}{{ r.status.class_name }}{% endif %}</p>
+        <p class="who">{% if r.status.teacher %}{{ r.status.teacher }}{% endif %}{% if r.status.class_name %}{% if r.status.teacher %} · {% endif %}<span title="{{ r.status.year }}">{{ r.status.class_name }}</span>{% endif %}{% if r.status.batch %} · Batch {{ r.status.batch }}{% endif %}</p>
         <p class="until">Until {{ r.status.until }}{% if r.status.note %} · {{ r.status.note }}{% endif %}</p>
       {% endif %}
     </div>{% endfor %}
@@ -80,11 +80,11 @@
   <div class="grid v-timeline"><div class="inner">
     <div class="grow hrow"><div class="lab"></div><div class="hrs">{% for h in hours %}<div style="width:{{ h.width }}%">{{ h.label }}</div>{% endfor %}</div></div>
     {% for r in sec.rows %}
-    <div class="grow" data-s="{{ r.room.name }} {{ r.room.department.name }}{% for b in r.blocks %} {{ b.teacher }} {{ b.title }}{% endfor %}"><div class="lab" title="{{ r.room.department.name }}">{{ r.room.name }}</div>
+    <div class="grow" data-s="{{ r.room.name }} {{ r.room.department.name }}{% for b in r.blocks %} {{ b.teacher }} {{ b.title }} {{ b.class_name }} {{ b.year }}{% endfor %}"><div class="lab" title="{{ r.room.department.name }}">{{ r.room.name }}</div>
       <div class="track">
         {% for b in r.blocks %}
         <div class="blk {{ b.kind }}" style="left:{{ b.left }}%;width:{{ b.width }}%"
-             title="{{ b.label }} · {{ b.title }}{% if b.teacher %} · {{ b.teacher }}{% endif %}{% if b.class_name %} · {{ b.class_name }}{% endif %}{% if b.note %} · {{ b.note }}{% endif %}">
+             title="{{ b.label }} · {{ b.title }}{% if b.teacher %} · {{ b.teacher }}{% endif %}{% if b.class_name %} · {{ b.class_name }}{% if b.year %} ({{ b.year }}){% endif %}{% endif %}{% if b.batch %} · Batch {{ b.batch }}{% endif %}{% if b.note %} · {{ b.note }}{% endif %}">
           <strong>{{ b.title }}</strong><small>{% if b.teacher %}{{ b.teacher }}{% else %}{{ b.label }}{% endif %}</small>
         </div>{% endfor %}
         {% if now_left != None %}<i class="nowline" style="left:{{ now_left }}%"></i>{% endif %}

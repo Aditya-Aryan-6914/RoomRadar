@@ -68,3 +68,17 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "my_campus"
 LOGOUT_REDIRECT_URL = "home"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- Timetable reading --------------------------------------------------------------------------
+# Built-in rules read timetables with no setup. To let a small LLM read messy cells instead, set:
+#   TIMETABLE_LLM_PROVIDER = anthropic | openai      (openai = any OpenAI-compatible server)
+#   TIMETABLE_LLM_MODEL    = e.g. claude-haiku-5-5 | qwen2.5:3b (Ollama) | llama-3.1-8b-instant (Groq)
+#   TIMETABLE_LLM_API_KEY  = key (not needed for a local Ollama server)  [ANTHROPIC_API_KEY also works]
+#   TIMETABLE_LLM_BASE_URL = e.g. http://localhost:11434/v1 (Ollama), https://api.groq.com/openai/v1
+# Only the text of the timetable cells is sent to the model, never the PDF itself.
+TIMETABLE_LLM = {
+    "provider": os.environ.get("TIMETABLE_LLM_PROVIDER", "none"),
+    "model": os.environ.get("TIMETABLE_LLM_MODEL", ""),
+    "api_key": os.environ.get("TIMETABLE_LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", ""),
+    "base_url": os.environ.get("TIMETABLE_LLM_BASE_URL", ""),
+}

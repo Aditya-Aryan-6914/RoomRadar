@@ -30,6 +30,7 @@ DEPT_RE = re.compile(r"\bdepartment\s*(?:of)?\s*[:\-]?\s*([A-Za-z&,\- ]{3,60})",
 class ParseResult:
     sessions: list = field(default_factory=list)   # dicts: department, class_name, room, subject, ...
     warnings: list = field(default_factory=list)
+    data: dict = None                              # full structured JSON (new extractor only)
 
 
 def detect_context(text):
@@ -161,9 +162,28 @@ def _table_rows(table, ctx, raw, warnings):
             raw.append(last)
 
 
-def parse_pdf(file_like, class_name="", room_name="", department=""):
-    """Every grid table found in the PDF is one division/class. Department, class and home room
-    are read from the text above each grid; the form values are only fallbacks."""
+def parse_pdf(file_like, class_name="", room_name="", department="", use_llm=True):
+    """Timetable PDF -> sessions.
+
+    1. ``timetable_extract`` (days across / times down, merged cells, batches, electives, default
+       classroom from the header, optional small LLM for the cell text) -> structured JSON.
+    2. If that finds nothing, the older grid parser (times across / days down) is used.
+    """
+    from .llm import get_llm
+    from .timetable_extract import extract_timetable, to_sessions
+    data = extract_timetable(file_like, llm=get_llm() if use_llm else None, department=department)
+    if data["classes"]:
+        result = ParseResult(sessions=to_sessions(data, department), warnings=list(data["warnings"]),
+                             data=data)
+        return result
+    if hasattr(file_like, "seek"):
+        file_like.seek(0)
+    return _parse_pdf_grid(file_like, class_name, room_name, department)
+
+
+def _parse_pdf_grid(file_like, class_name="", room_name="", department=""):
+    """Older parser. Every grid table found in the PDF is one division/class. Department, class and
+    home room are read from the text above each grid; the form values are only fallbacks."""
     result = ParseResult()
     raw = []
     found_tables = 0

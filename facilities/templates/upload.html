@@ -7,17 +7,17 @@
   <p class="muted small">A department PDF may contain several divisions (one table each). Uploading a division again replaces its old timetable.</p>
 </div>
 <div class="panel"><h2>Uploaded files</h2>
-  {% for u in uploads %}<div class="row"><div><b>{{ u.filename|default:"timetable" }}</b><div class="muted small">{{ u.uploaded_at|date:"j M, H:i" }} · {{ u.sessions_created }} slots · {{ u.summary }}</div></div>
+  {% for u in uploads %}<div class="row"><div><b>{{ u.filename|default:"timetable" }}</b><div class="muted small">{{ u.uploaded_at|date:"j M, H:i" }} · {{ u.sessions_created }} slots · {{ u.summary }}{% if u.parsed_json %} · <a href="{% url 'upload_json' slug=inst.slug pk=u.pk %}">JSON</a>{% endif %}</div></div>
     <form method="post" action="{% url 'delete_upload' slug=inst.slug pk=u.pk %}" onsubmit="return confirm('Remove this timetable and its rooms from the dashboard?')">{% csrf_token %}<button class="btn ghost small danger">Remove</button></form></div>
   {% empty %}<p class="muted">Nothing uploaded yet.</p>{% endfor %}
 </div></div>
 {% if result %}
 <div class="panel"><h2>Import result</h2>
   {% for w in result.warnings %}<div class="msg warning">{{ w }}</div>{% endfor %}
-  {% if groups %}<div class="chips">{% for g in groups %}<div class="chip"><b>{{ g.department }} · {{ g.class_name }}</b><span>Room: {{ g.room }} · {{ g.sessions }} slots{% if g.rooms|length > 1 %} · also {{ g.rooms|length|add:"-1" }} lab/other room(s){% endif %}</span></div>{% endfor %}</div>
-  <p><a class="btn" href="{% url 'dashboard' slug=inst.slug %}">Open dashboard</a></p>
-  <details><summary>Preview of parsed slots</summary><table class="tbl"><tr><th>Class</th><th>Day</th><th>Time</th><th>Subject</th><th>Teacher</th><th>Room</th></tr>
-  {% for s in preview %}<tr><td>{{ s.class_name }}</td><td>{{ s.day_name }}</td><td>{{ s.start_time|time:"H:i" }}–{{ s.end_time|time:"H:i" }}</td><td>{{ s.subject }}</td><td>{{ s.teacher }}</td><td>{{ s.room|default:s.home_room }}</td></tr>{% endfor %}</table></details>
+  {% if groups %}<div class="chips">{% for g in groups %}<div class="chip"><b>{{ g.department }} · {{ g.class_name }}</b><span>{% if g.year %}{{ g.year }} · {% endif %}Default room: {{ g.room }} · {{ g.sessions }} slots{% if g.rooms|length > 1 %} · also {{ g.rooms|length|add:"-1" }} lab/other room(s){% endif %}</span></div>{% endfor %}</div>
+  <p><a class="btn" href="{% url 'dashboard' slug=inst.slug %}">Open dashboard</a>{% if upload_id %} <a class="btn ghost" href="{% url 'upload_json' slug=inst.slug pk=upload_id %}">Download parsed JSON</a>{% endif %}{% if extractor %} <span class="muted small">read by: {{ extractor }}</span>{% endif %}</p>
+  <details><summary>Preview of parsed slots</summary><table class="tbl"><tr><th>Class</th><th>Year</th><th>Day</th><th>Time</th><th>Subject</th><th>Teacher</th><th>Batch</th><th>Room</th></tr>
+  {% for s in preview %}<tr><td>{{ s.class_name }}</td><td>{{ s.year }}</td><td>{{ s.day_name }}</td><td>{{ s.start_time|time:"H:i" }}–{{ s.end_time|time:"H:i" }}</td><td>{{ s.subject }}</td><td>{{ s.teacher }}</td><td>{{ s.batch }}</td><td>{{ s.room|default:s.home_room }}</td></tr>{% endfor %}</table></details>
   {% endif %}
 </div>{% endif %}
 {% endblock %}
